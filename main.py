@@ -9,6 +9,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from openai import OpenAI
 from langdetect import detect, LangDetectException
+from duckduckgo_search import DDGS
 
 # Load environment variables from .env file
 load_dotenv()
@@ -28,17 +29,52 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def web_search(query: str) -> str:
+    """Search for information on the internet using DuckDuckGo."""
+    try:
+        with DDGS() as ddgs:
+            results = ddgs.text(query, region="wt-wt", safesearch="off", max_results=3)
+            snippets = [r["body"] for r in results if "body" in r]
+            return "\n".join(snippets) if snippets else "No results found."
+    except Exception as e:
+        logger.error(f"Web search error: {e}")
+        return "Search failed. Please try again."
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a welcome message when the /start command is issued."""
     await update.message.reply_text(
-        "Hello! I'm a ChatGPT-powered bot. Send me a message and I'll reply using OpenAI's GPT-4!"
+        "Hello! I'm a ChatGPT-powered bot with web search capabilities. "
+        "Send me a message and I'll reply using OpenAI's GPT-4 with real-time web search when needed!"
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a help message when the /help command is issued."""
     await update.message.reply_text(
-        "Just send me any message and I'll respond with ChatGPT!"
+        "I can help you with:\n"
+        "• General questions and conversations\n"
+        "• Real-time information from the web\n"
+        "• Multi-language support (I'll reply in your language)\n"
+        "• Current events and latest news\n\n"
+        "Just send me any message!"
     )
+
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /search command for direct web search."""
+    if not context.args:
+        await update.message.reply_text("Usage: /search <your search query>")
+        return
+    
+    query = ' '.join(context.args)
+    await update.message.reply_text(f"Searching for: {query}")
+    
+    try:
+        search_results = web_search(query)
+        if len(search_results) > 4096:  # Telegram message limit
+            search_results = search_results[:4093] + "..."
+        await update.message.reply_text(search_results)
+    except Exception as e:
+        logger.error(f"Search command error: {e}")
+        await update.message.reply_text("Sorry, search failed. Please try again.")
 
 async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming messages: send them to OpenAI and reply with the result."""
@@ -59,7 +95,19 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         language_name = lang_map.get(lang, "English")
 
-        system_prompt = f"Respond in {language_name} language, regardless of the question's language."
+        # Enhanced system prompt with web search capability
+        system_prompt = f"""You are a helpful assistant. Respond in {language_name} language.
+
+Your knowledge is mostly limited to the end of 2023, and now it is 2025. 
+When answering questions involving current events, recent data, or real-time updates, 
+suggest that the user use the /search command to find accurate and up-to-date information.
+
+For example:
+- If asked about current events, news, or recent data, suggest using /search
+- If asked about weather, stock prices, or live information, suggest using /search
+- For general knowledge questions within your training data, answer directly
+
+Always respond in {language_name} language."""
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -88,6 +136,7 @@ async def main():
     # Register command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("search", search_command))
 
     # Register message handler for all text messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chatgpt_reply))
