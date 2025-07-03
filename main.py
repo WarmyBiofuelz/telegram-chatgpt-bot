@@ -101,14 +101,30 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'weather', 'naujienos', 'šiandien', 'naujausi', 'dabartiniai', 'kaina', 'akcijos',  # Lithuanian
             'laiks', 'jaunumi', 'šodien', 'jaunākie', 'pašreizējie', 'cena', 'akcijas'  # Latvian
         ]
-        needs_search = any(keyword in user_message.lower() for keyword in search_keywords)
         
+        # Check for question patterns first (more aggressive search for people/topics)
+        search_patterns = [
+            'who is', 'what is', 'who are', 'what are',
+            'kas yra', 'kas tai', 'kas yra', 'kas tai',  # Lithuanian
+            'kas ir', 'kas tas', 'kas ir', 'kas tas'     # Latvian
+        ]
+        
+        # More comprehensive search detection
+        needs_search = any(pattern in user_message.lower() for pattern in search_patterns)
+        
+        # If no question pattern, check for other keywords
+        if not needs_search:
+            needs_search = any(keyword in user_message.lower() for keyword in search_keywords)
+
         # Enhanced system prompt
         system_prompt = f"""You are a helpful assistant. Respond in {language_name} language.
 
 Your knowledge is mostly limited to the end of 2023, and now it is 2025. 
 When provided with recent web search results, use them to give accurate and up-to-date information.
 If no search results are provided, answer based on your training data.
+
+IMPORTANT: If you don't have current information and search results are provided, use them to answer the question.
+Do not ask users to search - just use the search results that are provided to you.
 
 Always respond in {language_name} language."""
 
