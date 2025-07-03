@@ -1,7 +1,6 @@
-python-telegram-bot
-openai
-python-dotenv
-nest_asyncio
-langdetect
-duckduckgo-search
-agents
+python-telegram-bot==22.2
+openai==1.93.0
+python-dotenv==1.1.1
+nest_asyncio==1.6.0
+langdetect==1.0.9
+duckduckgo-search==4.1.1
