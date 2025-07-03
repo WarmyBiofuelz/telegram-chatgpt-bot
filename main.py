@@ -95,23 +95,42 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         language_name = lang_map.get(lang, "English")
 
-        # Enhanced system prompt with web search capability
+        # Detect if web search is needed
+        search_keywords = [
+            'weather', 'news', 'today', 'latest', 'current', 'price', 'stock',
+            'weather', 'naujienos', 'šiandien', 'naujausi', 'dabartiniai', 'kaina', 'akcijos',  # Lithuanian
+            'laiks', 'jaunumi', 'šodien', 'jaunākie', 'pašreizējie', 'cena', 'akcijas'  # Latvian
+        ]
+        needs_search = any(keyword in user_message.lower() for keyword in search_keywords)
+        
+        # Enhanced system prompt
         system_prompt = f"""You are a helpful assistant. Respond in {language_name} language.
 
 Your knowledge is mostly limited to the end of 2023, and now it is 2025. 
-When answering questions involving current events, recent data, or real-time updates, 
-suggest that the user use the /search command to find accurate and up-to-date information.
-
-For example:
-- If asked about current events, news, or recent data, suggest using /search
-- If asked about weather, stock prices, or live information, suggest using /search
-- For general knowledge questions within your training data, answer directly
+When provided with recent web search results, use them to give accurate and up-to-date information.
+If no search results are provided, answer based on your training data.
 
 Always respond in {language_name} language."""
 
+        if needs_search:
+            # Do web search automatically
+            await update.message.reply_text("🔍 Searching for current information...")
+            try:
+                search_results = web_search(user_message)
+                if search_results and search_results != "No results found.":
+                    # Include search results in the prompt
+                    enhanced_message = f"User question: {user_message}\n\nRecent web search results: {search_results}"
+                else:
+                    enhanced_message = user_message
+            except Exception as e:
+                logger.error(f"Web search error: {e}")
+                enhanced_message = user_message
+        else:
+            enhanced_message = user_message
+
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
+            {"role": "user", "content": enhanced_message}
         ]
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
