@@ -7,20 +7,19 @@ import logging
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-from openai import OpenAI
+from openai import AsyncOpenAI
 from langdetect import detect, LangDetectException
-from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel, function_tool
 from duckduckgo_search import DDGS
 
 # Load environment variables from .env file
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+OPENAI_API_KEY = os.getenv('SECRET2')
 
-# Initialize the OpenAI client
-client = OpenAI(
-    api_key=OPENAI_API_KEY,
-    base_url="https://api.openai.com/v1"
+# Initialize the OpenAI client with GitHub model endpoint
+client = AsyncOpenAI(
+    base_url="https://models.github.ai/inference",
+    api_key=OPENAI_API_KEY
 )
 
 # Set up logging for debugging and monitoring
@@ -30,7 +29,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-@function_tool
 def web_search(query: str) -> str:
     """Search for information on the internet using DuckDuckGo."""
     try:
@@ -41,21 +39,6 @@ def web_search(query: str) -> str:
     except Exception as e:
         logger.error(f"Web search error: {e}")
         return "Search failed. Please try again."
-
-# Create the agent with web search tool
-tools = [web_search]
-
-agent = Agent(
-    name="Assistant",
-    instructions="""Your knowledge is mostly limited to the end of 2023, and now it is 2025. 
-When answering questions involving current events, recent data, or real-time updates, ALWAYS use the web_search tool (DuckDuckGo) to find accurate and up-to-date information. 
-If you are unsure or do not have the information, use the web_search tool to look it up online. 
-Do not guess or answer from your own knowledge for current or factual questions—always use the web_search tool.
-Respond in the same language as the user's question.""",
-    model=client,
-    model_settings=ModelSettings(temperature=0.1),
-    tools=tools
-)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a welcome message when the /start command is issued."""
@@ -94,20 +77,52 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Sorry, search failed. Please try again.")
 
 async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming messages using the agent with automatic web search."""
+    """Handle incoming messages with automatic web search."""
     user_message = update.message.text
     try:
-        # Use the agent to get response with automatic web search
-        conversation = f"User: {user_message}"
-        result = await Runner.run(agent, conversation)
-        bot_reply = result.final_output
+        # Detect language
+        try:
+            lang = detect(user_message)
+        except LangDetectException:
+            lang = "en"  # fallback
+
+        # Map language codes to language names
+        lang_map = {
+            "lt": "Lietuvių",  # Lithuanian
+            "lv": "Latviešu",  # Latvian
+            "en": "English",
+        }
+        language_name = lang_map.get(lang, "English")
+
+        # Always try web search first for current information
+        search_results = web_search(user_message)
+        
+        # Create enhanced prompt with search results
+        if search_results and search_results != "No results found.":
+            enhanced_message = f"""User question: {user_message}
+
+Recent web search results: {search_results}
+
+Please answer the user's question using the search results if they are relevant, or your knowledge if not. Respond in {language_name} language."""
+        else:
+            enhanced_message = f"User question: {user_message}\n\nPlease respond in {language_name} language."
+
+        # Send to GitHub model
+        response = await client.chat.completions.create(
+            model="openai/gpt-4.1-nano",
+            messages=[
+                {"role": "system", "content": f"Your knowledge is mostly limited to the end of 2023, and now it is 2025. When provided with recent web search results, use them to give accurate and up-to-date information. Always respond in {language_name} language."},
+                {"role": "user", "content": enhanced_message}
+            ]
+        )
+        bot_reply = response.choices[0].message.content.strip()
         
         # Handle Telegram message length limit
         if len(bot_reply) > 4096:
             bot_reply = bot_reply[:4093] + "..."
             
     except Exception as e:
-        logger.error(f"Agent error: {e}", exc_info=True)
+        logger.error(f"GitHub model API error: {e}", exc_info=True)
         bot_reply = "Sorry, I couldn't process your request right now. Please try again later."
     
     await update.message.reply_text(bot_reply)
