@@ -9,6 +9,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from openai import OpenAI
 from langdetect import detect, LangDetectException
+from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel, function_tool
 from duckduckgo_search import DDGS
 
 # Load environment variables from .env file
@@ -29,6 +30,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+@function_tool
 def web_search(query: str) -> str:
     """Search for information on the internet using DuckDuckGo."""
     try:
@@ -40,11 +42,26 @@ def web_search(query: str) -> str:
         logger.error(f"Web search error: {e}")
         return "Search failed. Please try again."
 
+# Create the agent with web search tool
+tools = [web_search]
+
+agent = Agent(
+    name="Assistant",
+    instructions="""Your knowledge is mostly limited to the end of 2023, and now it is 2025. 
+When answering questions involving current events, recent data, or real-time updates, ALWAYS use the web_search tool (DuckDuckGo) to find accurate and up-to-date information. 
+If you are unsure or do not have the information, use the web_search tool to look it up online. 
+Do not guess or answer from your own knowledge for current or factual questions—always use the web_search tool.
+Respond in the same language as the user's question.""",
+    model=client,
+    model_settings=ModelSettings(temperature=0.1),
+    tools=tools
+)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a welcome message when the /start command is issued."""
     await update.message.reply_text(
-        "Hello! I'm a ChatGPT-powered bot with web search capabilities. "
-        "Send me a message and I'll reply using OpenAI's GPT-4 with real-time web search when needed!"
+        "Hello! I'm a ChatGPT-powered bot with automatic web search capabilities. "
+        "I'll automatically search for current information when needed!"
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -52,7 +69,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "I can help you with:\n"
         "• General questions and conversations\n"
-        "• Real-time information from the web\n"
+        "• Real-time information from the web (automatic)\n"
         "• Multi-language support (I'll reply in your language)\n"
         "• Current events and latest news\n\n"
         "Just send me any message!"
@@ -77,85 +94,22 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Sorry, search failed. Please try again.")
 
 async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming messages: send them to OpenAI and reply with the result."""
+    """Handle incoming messages using the agent with automatic web search."""
     user_message = update.message.text
     try:
-        # Detect language
-        try:
-            lang = detect(user_message)
-        except LangDetectException:
-            lang = "en"  # fallback
-
-        # Map language codes to language names for the system prompt
-        lang_map = {
-            "lt": "Lietuvių",  # Lithuanian
-            "lv": "Latviešu",  # Latvian
-            "en": "English",
-            # add more if needed
-        }
-        language_name = lang_map.get(lang, "English")
-
-        # Detect if web search is needed
-        search_keywords = [
-            'weather', 'news', 'today', 'latest', 'current', 'price', 'stock',
-            'weather', 'naujienos', 'šiandien', 'naujausi', 'dabartiniai', 'kaina', 'akcijos',  # Lithuanian
-            'laiks', 'jaunumi', 'šodien', 'jaunākie', 'pašreizējie', 'cena', 'akcijas'  # Latvian
-        ]
+        # Use the agent to get response with automatic web search
+        conversation = f"User: {user_message}"
+        result = await Runner.run(agent, conversation)
+        bot_reply = result.final_output
         
-        # Check for question patterns first (more aggressive search for people/topics)
-        search_patterns = [
-            'who is', 'what is', 'who are', 'what are',
-            'kas yra', 'kas tai', 'kas yra', 'kas tai',  # Lithuanian
-            'kas ir', 'kas tas', 'kas ir', 'kas tas'     # Latvian
-        ]
-        
-        # More comprehensive search detection
-        needs_search = any(pattern in user_message.lower() for pattern in search_patterns)
-        
-        # If no question pattern, check for other keywords
-        if not needs_search:
-            needs_search = any(keyword in user_message.lower() for keyword in search_keywords)
-
-        # Enhanced system prompt
-        system_prompt = f"""You are a helpful assistant. Respond in {language_name} language.
-
-Your knowledge is mostly limited to the end of 2023, and now it is 2025. 
-When provided with recent web search results, use them to give accurate and up-to-date information.
-If no search results are provided, answer based on your training data.
-
-IMPORTANT: If you don't have current information and search results are provided, use them to answer the question.
-Do not ask users to search - just use the search results that are provided to you.
-
-Always respond in {language_name} language."""
-
-        if needs_search:
-            # Do web search automatically
-            await update.message.reply_text("🔍 Searching for current information...")
-            try:
-                search_results = web_search(user_message)
-                if search_results and search_results != "No results found.":
-                    # Include search results in the prompt
-                    enhanced_message = f"User question: {user_message}\n\nRecent web search results: {search_results}"
-                else:
-                    enhanced_message = user_message
-            except Exception as e:
-                logger.error(f"Web search error: {e}")
-                enhanced_message = user_message
-        else:
-            enhanced_message = user_message
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": enhanced_message}
-        ]
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages
-        )
-        bot_reply = response.choices[0].message.content.strip()
+        # Handle Telegram message length limit
+        if len(bot_reply) > 4096:
+            bot_reply = bot_reply[:4093] + "..."
+            
     except Exception as e:
-        logger.error(f"OpenAI API error: {e}", exc_info=True)
+        logger.error(f"Agent error: {e}", exc_info=True)
         bot_reply = "Sorry, I couldn't process your request right now. Please try again later."
+    
     await update.message.reply_text(bot_reply)
 
 async def main():
