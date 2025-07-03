@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from openai import OpenAI
+from langdetect import detect, LangDetectException
 
 # Load environment variables from .env file
 load_dotenv()
@@ -43,9 +44,25 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming messages: send them to OpenAI and reply with the result."""
     user_message = update.message.text
     try:
-        # Add a system prompt for Lithuanian (optional, remove if not needed)
+        # Detect language
+        try:
+            lang = detect(user_message)
+        except LangDetectException:
+            lang = "en"  # fallback
+
+        # Map language codes to language names for the system prompt
+        lang_map = {
+            "lt": "Lietuvių",  # Lithuanian
+            "lv": "Latviešu",  # Latvian
+            "en": "English",
+            # add more if needed
+        }
+        language_name = lang_map.get(lang, "English")
+
+        system_prompt = f"Respond in {language_name} language, regardless of the question's language."
+
         messages = [
-            {"role": "system", "content": "Atsakyk tik lietuvių kalba, nepriklausomai nuo klausimo kalbos. Jei klausimas užduotas kita kalba, vis tiek atsakyk lietuviškai."},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
         ]
         response = client.chat.completions.create(
