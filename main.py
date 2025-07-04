@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from openai import AsyncOpenAI
-from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel, function_tool
 from duckduckgo_search import DDGS
 
 # Load environment variables from .env file
@@ -35,19 +34,6 @@ client = AsyncOpenAI(
 
 model = "openai/gpt-4.1-nano"
 
-model_instance = OpenAIChatCompletionsModel(
-    model=model,
-    openai_client=client
-)
-
-# Set up logging for debugging and monitoring
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
-@function_tool
 def web_search(query: str) -> str:
     """Search for information on the internet using DuckDuckGo."""
     with DDGS() as ddgs:
@@ -55,22 +41,12 @@ def web_search(query: str) -> str:
         snippets = [r["body"] for r in results if "body" in r]
         return "\n".join(snippets) if snippets else "No results found."
 
-tools = [web_search]
-
-agent = Agent(
-    name="Assistant",
-    instructions=SYSTEM_PROMPT,
-    model=model_instance,
-    model_settings=ModelSettings(temperature=0.1),
-    tools=tools
+# Set up logging for debugging and monitoring
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
-
-async def get_agent_response(user_message):
-    # Compose the conversation for the agent
-    conversation = f"User: {user_message}"
-    # Run the agent and get the response
-    result = await Runner.run(agent, conversation)
-    return result.final_output
+logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a welcome message when the /start command is issued."""
@@ -88,6 +64,32 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Current events and latest news\n\n"
         "Just send me any message!"
     )
+
+async def get_agent_response(user_message):
+    """Simulate the agents framework behavior with automatic web search."""
+    # Always search for current information
+    search_results = web_search(user_message)
+    
+    # Create the conversation with search results
+    if search_results and search_results != "No results found.":
+        conversation = f"""User: {user_message}
+
+Recent web search results: {search_results}
+
+Please answer the user's question using the search results if they are relevant, or your knowledge if not."""
+    else:
+        conversation = f"User: {user_message}"
+    
+    # Send to GitHub model
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": conversation}
+        ],
+        temperature=0.1
+    )
+    return response.choices[0].message.content.strip()
 
 async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming messages using the agent with automatic web search."""
