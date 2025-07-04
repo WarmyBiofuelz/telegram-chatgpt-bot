@@ -4,17 +4,14 @@ if sys.version_info >= (3, 10):
     nest_asyncio.apply()
 import os
 import logging
+import time
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from openai import AsyncOpenAI
-from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel, function_tool
 from duckduckgo_search import DDGS
 
-# Load environment variables from .env file
 load_dotenv()
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-OPENAI_API_KEY = os.getenv('SECRET2')
 
 SYSTEM_PROMPT = (
     "Your knowledge is mostly limited to the end of 2023, and now it is 2025. "
@@ -27,17 +24,18 @@ SYSTEM_PROMPT = (
     "Whenever needed, use the web_search tool to find the latest information."
 )
 
-# Initialize the OpenAI client with GitHub model endpoint
-client = AsyncOpenAI(
-    base_url="https://models.github.ai/inference",
-    api_key=OPENAI_API_KEY
-)
-
+api_key = os.getenv("SECRET2")
+endpoint = "https://models.github.ai/inference"
 model = "openai/gpt-4.1-nano"
+
+client = AsyncOpenAI(
+    base_url=endpoint,
+    api_key=api_key
+)
 
 # Rate limiting for DuckDuckGo
 last_search_time = 0
-SEARCH_COOLDOWN = 5  # seconds between searches (increased from 2)
+SEARCH_COOLDOWN = 5  # seconds between searches
 
 def web_search(query: str) -> str:
     """Search for information on the internet using DuckDuckGo with rate limiting."""
@@ -62,7 +60,7 @@ def web_search(query: str) -> str:
             time.sleep(10)  # Wait 10 seconds after rate limit
         return "Search temporarily unavailable. Please try again in a moment."
 
-# Set up logging for debugging and monitoring
+# Set up logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -132,12 +130,12 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def main():
     """Start the Telegram bot."""
     # Check for required API keys
-    if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
-        logger.error("Missing TELEGRAM_BOT_TOKEN or OPENAI_API_KEY in environment.")
+    if not os.getenv('TELEGRAM_BOT_TOKEN') or not api_key:
+        logger.error("Missing TELEGRAM_BOT_TOKEN or SECRET2 in environment.")
         return
 
     # Build the application
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app = ApplicationBuilder().token(os.getenv('TELEGRAM_BOT_TOKEN')).build()
 
     # Register command handlers
     app.add_handler(CommandHandler("start", start))
