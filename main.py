@@ -38,13 +38,34 @@ model_instance = OpenAIChatCompletionsModel(
     openai_client=client
 )
 
+import time
+
+# Global rate limiting for DuckDuckGo
+last_search_time = 0
+SEARCH_COOLDOWN = 10  # seconds between searches
+
 @function_tool
 def web_search(query: str) -> str:
     """Ieškok informacijos internete naudodamas DuckDuckGo."""
-    with DDGS() as ddgs:
-        results = ddgs.text(query, region="wt-wt", safesearch="off", max_results=3)
-        snippets = [r["body"] for r in results if "body" in r]
-        return "\n".join(snippets) if snippets else "Nerasta rezultatų."
+    global last_search_time
+    
+    # Rate limiting
+    current_time = time.time()
+    if current_time - last_search_time < SEARCH_COOLDOWN:
+        time.sleep(SEARCH_COOLDOWN - (current_time - last_search_time))
+    
+    try:
+        with DDGS() as ddgs:
+            results = ddgs.text(query, region="wt-wt", safesearch="off", max_results=3)
+            snippets = [r["body"] for r in results if "body" in r]
+            last_search_time = time.time()
+            return "\n".join(snippets) if snippets else "Nerasta rezultatų."
+    except Exception as e:
+        last_search_time = time.time()
+        # If it's a rate limit error, wait longer
+        if "Ratelimit" in str(e):
+            time.sleep(30)  # Wait 30 seconds after rate limit
+        return "Search temporarily unavailable due to rate limits. Please try again in a few minutes."
 
 tools = [web_search]
 
