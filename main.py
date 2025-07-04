@@ -11,10 +11,7 @@ from openai import AsyncOpenAI
 from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel, function_tool
 from duckduckgo_search import DDGS
 
-# Load environment variables from .env file
 load_dotenv()
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-OPENAI_API_KEY = os.getenv('SECRET2')
 
 SYSTEM_PROMPT = (
     "Your knowledge is mostly limited to the end of 2023, and now it is 2025. "
@@ -27,42 +24,39 @@ SYSTEM_PROMPT = (
     "Whenever needed, use the web_search tool to find the latest information."
 )
 
-# Initialize the OpenAI client with GitHub model endpoint
-client = AsyncOpenAI(
-    base_url="https://models.github.ai/inference",
-    api_key=OPENAI_API_KEY
-)
-
+api_key = os.getenv("SECRET2")
+endpoint = "https://models.github.ai/inference"
 model = "openai/gpt-4.1-nano"
 
-# Rate limiting for DuckDuckGo
-last_search_time = 0
-SEARCH_COOLDOWN = 5  # seconds between searches (increased from 2)
+client = AsyncOpenAI(
+    base_url=endpoint,
+    api_key=api_key
+)
 
+model_instance = OpenAIChatCompletionsModel(
+    model=model,
+    openai_client=client
+)
+
+@function_tool
 def web_search(query: str) -> str:
-    """Search for information on the internet using DuckDuckGo with rate limiting."""
-    global last_search_time
-    
-    # Rate limiting
-    current_time = time.time()
-    if current_time - last_search_time < SEARCH_COOLDOWN:
-        time.sleep(SEARCH_COOLDOWN - (current_time - last_search_time))
-    
-    try:
-        with DDGS() as ddgs:
-            results = ddgs.text(query, region="wt-wt", safesearch="off", max_results=3)
-            snippets = [r["body"] for r in results if "body" in r]
-            last_search_time = time.time()
-            return "\n".join(snippets) if snippets else "No results found."
-    except Exception as e:
-        logger.error(f"Web search error: {e}")
-        last_search_time = time.time()
-        # If it's a rate limit error, wait longer before next search
-        if "Ratelimit" in str(e):
-            time.sleep(10)  # Wait 10 seconds after rate limit
-        return "Search temporarily unavailable. Please try again in a moment."
+    """Ieškok informacijos internete naudodamas DuckDuckGo."""
+    with DDGS() as ddgs:
+        results = ddgs.text(query, region="wt-wt", safesearch="off", max_results=3)
+        snippets = [r["body"] for r in results if "body" in r]
+        return "\n".join(snippets) if snippets else "Nerasta rezultatų."
 
-# Set up logging for debugging and monitoring
+tools = [web_search]
+
+agent = Agent(
+    name="Assistant",
+    instructions=SYSTEM_PROMPT,
+    model=model_instance,
+    model_settings=ModelSettings(temperature=0.1),
+    tools=tools
+)
+
+# Set up logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -86,45 +80,50 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Just send me any message!"
     )
 
-async def get_agent_response(user_message):
-    """Simulate the agents framework behavior with automatic web search."""
-    # Always search for current information
-    search_results = web_search(user_message)
-    
-    # Create the conversation with search results
-    if search_results and search_results != "No results found." and "temporarily unavailable" not in search_results:
-        conversation = f"""User: {user_message}
-
-Recent web search results: {search_results}
-
-Please answer the user's question using the search results if they are relevant, or your knowledge if not."""
-    else:
-        conversation = f"User: {user_message}"
-    
-    # Send to GitHub model
-    response = await client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": conversation}
-        ],
-        temperature=0.1
-    )
-    return response.choices[0].message.content.strip()
+async def get_agent_response(messages):
+    """Get response from the agent using the same approach as the working Streamlit code."""
+    try:
+        # Compose the conversation for the agent
+        conversation = ""
+        for msg in messages:
+            if msg["role"] == "user":
+                conversation += f"User: {msg['content']}\n"
+            elif msg["role"] == "assistant":
+                conversation += f"Assistant: {msg['content']}\n"
+        # Run the agent and get the response
+        result = await Runner.run(agent, conversation)
+        return result.final_output
+    except Exception as e:
+        logger.error(f"Agent error: {e}", exc_info=True)
+        return "Sorry, I couldn't process your request right now. Please try again later."
 
 async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming messages using the agent with automatic web search."""
+    """Handle incoming messages using the agent."""
     user_message = update.message.text
+    
+    # Initialize conversation history for this user if not exists
+    user_id = update.effective_user.id
+    if not hasattr(context.bot_data, 'conversations'):
+        context.bot_data['conversations'] = {}
+    if user_id not in context.bot_data['conversations']:
+        context.bot_data['conversations'][user_id] = []
+    
+    # Add user message to conversation history
+    context.bot_data['conversations'][user_id].append({"role": "user", "content": user_message})
+    
     try:
-        # Get agent response with automatic web search
-        response_text = await get_agent_response(user_message)
+        # Get agent response with conversation history
+        response_text = await get_agent_response(context.bot_data['conversations'][user_id])
+        
+        # Add assistant response to conversation history
+        context.bot_data['conversations'][user_id].append({"role": "assistant", "content": response_text})
         
         # Handle Telegram message length limit
         if len(response_text) > 4096:
             response_text = response_text[:4093] + "..."
             
     except Exception as e:
-        logger.error(f"Agent error: {e}", exc_info=True)
+        logger.error(f"Error in chatgpt_reply: {e}", exc_info=True)
         response_text = "Sorry, I couldn't process your request right now. Please try again later."
     
     await update.message.reply_text(response_text)
@@ -132,12 +131,12 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def main():
     """Start the Telegram bot."""
     # Check for required API keys
-    if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
-        logger.error("Missing TELEGRAM_BOT_TOKEN or OPENAI_API_KEY in environment.")
+    if not os.getenv('TELEGRAM_BOT_TOKEN') or not api_key:
+        logger.error("Missing TELEGRAM_BOT_TOKEN or SECRET2 in environment.")
         return
 
     # Build the application
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app = ApplicationBuilder().token(os.getenv('TELEGRAM_BOT_TOKEN')).build()
 
     # Register command handlers
     app.add_handler(CommandHandler("start", start))
