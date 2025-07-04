@@ -1,6 +1,7 @@
+# Python 3.12 required for agents compatibility
 python-telegram-bot==22.2
-openai==1.93.0
-python-dotenv==1.1.1
+openai>=1.0.0
+python-dotenv>=1.0.0
 nest_asyncio==1.6.0
 duckduckgo-search==4.1.1
-agents==0.1.0
+openai-agents<=0.1.0
