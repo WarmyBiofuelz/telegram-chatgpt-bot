@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from openai import AsyncOpenAI
+from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel, function_tool
 from duckduckgo_search import DDGS
 
 # Load environment variables from .env file
@@ -34,12 +35,32 @@ client = AsyncOpenAI(
 
 model = "openai/gpt-4.1-nano"
 
+# Rate limiting for DuckDuckGo
+last_search_time = 0
+SEARCH_COOLDOWN = 5  # seconds between searches (increased from 2)
+
 def web_search(query: str) -> str:
-    """Search for information on the internet using DuckDuckGo."""
-    with DDGS() as ddgs:
-        results = ddgs.text(query, region="wt-wt", safesearch="off", max_results=3)
-        snippets = [r["body"] for r in results if "body" in r]
-        return "\n".join(snippets) if snippets else "No results found."
+    """Search for information on the internet using DuckDuckGo with rate limiting."""
+    global last_search_time
+    
+    # Rate limiting
+    current_time = time.time()
+    if current_time - last_search_time < SEARCH_COOLDOWN:
+        time.sleep(SEARCH_COOLDOWN - (current_time - last_search_time))
+    
+    try:
+        with DDGS() as ddgs:
+            results = ddgs.text(query, region="wt-wt", safesearch="off", max_results=3)
+            snippets = [r["body"] for r in results if "body" in r]
+            last_search_time = time.time()
+            return "\n".join(snippets) if snippets else "No results found."
+    except Exception as e:
+        logger.error(f"Web search error: {e}")
+        last_search_time = time.time()
+        # If it's a rate limit error, wait longer before next search
+        if "Ratelimit" in str(e):
+            time.sleep(10)  # Wait 10 seconds after rate limit
+        return "Search temporarily unavailable. Please try again in a moment."
 
 # Set up logging for debugging and monitoring
 logging.basicConfig(
@@ -71,7 +92,7 @@ async def get_agent_response(user_message):
     search_results = web_search(user_message)
     
     # Create the conversation with search results
-    if search_results and search_results != "No results found.":
+    if search_results and search_results != "No results found." and "temporarily unavailable" not in search_results:
         conversation = f"""User: {user_message}
 
 Recent web search results: {search_results}
