@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from openai import AsyncOpenAI
-from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel, function_tool
+from openai_agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel, function_tool
 from duckduckgo_search import DDGS
 
 # Load environment variables from .env file
