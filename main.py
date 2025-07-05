@@ -1,66 +1,17 @@
 import sys
 import os
-try:
-    if sys.version_info >= (3, 10):
-        import nest_asyncio
-        nest_asyncio.apply()
-except ImportError:
-    # nest_asyncio is optional, continue without it
-    pass
 import logging
-from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-from openai import OpenAI
+import asyncio
+from telegram.ext import ApplicationBuilder
+from shared.config import TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, LOG_FORMAT, LOG_LEVEL
 
-# Load environment variables from .env file
-load_dotenv()
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+# Import modules
+from modules.chat_module import get_chat_handlers
+from modules.calendar_module import get_calendar_handlers
 
-# Initialize the OpenAI client
-client = OpenAI(
-    api_key=OPENAI_API_KEY,
-    base_url="https://api.openai.com/v1"
-)
-
-# Set up logging for debugging and monitoring
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# Set up logging
+logging.basicConfig(format=LOG_FORMAT, level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a welcome message when the /start command is issued."""
-    await update.message.reply_text(
-        "Hello! I'm a ChatGPT-powered bot. Send me a message and I'll reply using OpenAI's GPT-4!"
-    )
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a help message when the /help command is issued."""
-    await update.message.reply_text(
-        "Just send me any message and I'll respond with ChatGPT!"
-    )
-
-async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming messages: send them to OpenAI and reply with the result."""
-    user_message = update.message.text
-    try:
-        # Add a system prompt for Lithuanian with knowledge limitation
-        messages = [
-            {"role": "system", "content": "Atsakyk tik lietuvių kalba, nepriklausomai nuo klausimo kalbos. Jei klausimas užduotas kita kalba, vis tiek atsakyk lietuviškai. Atsakyk tik tuo, ką žinai iš savo žinių. Jei neturi informacijos apie klausimą, atsakyk: 'Atsiprašau, bet neturiu informacijos apie tai.' Nekurk informacijos, jei jos nežinai."},
-            {"role": "user", "content": user_message}
-        ]
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages
-        )
-        bot_reply = response.choices[0].message.content.strip()
-    except Exception as e:
-        logger.error(f"OpenAI API error: {e}", exc_info=True)
-        bot_reply = "Sorry, I couldn't process your request right now. Please try again later."
-    await update.message.reply_text(bot_reply)
 
 async def main():
     """Start the Telegram bot."""
@@ -72,19 +23,19 @@ async def main():
     # Build the application
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # Register command handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-
-    # Register message handler for all text messages
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chatgpt_reply))
+    # Register all handlers from modules
+    chat_handlers = get_chat_handlers()
+    calendar_handlers = get_calendar_handlers()
+    
+    # Add all handlers to the application
+    for handler in chat_handlers + calendar_handlers:
+        app.add_handler(handler)
 
     # Start the bot
-    logger.info("Bot is starting...")
+    logger.info("Bot is starting with chat and calendar modules...")
     await app.run_polling()
 
 if __name__ == "__main__":
-    import asyncio
     try:
         asyncio.run(main())
     except RuntimeError as e:
