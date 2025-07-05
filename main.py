@@ -1,15 +1,12 @@
-import sys
-if sys.version_info >= (3, 10):
-    import nest_asyncio
-    nest_asyncio.apply()
 import os
-import logging
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+import asyncio
 from openai import AsyncOpenAI
 from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel, function_tool
 from duckduckgo_search import DDGS
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+import logging
 
 load_dotenv()
 
