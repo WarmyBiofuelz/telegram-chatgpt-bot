@@ -1,8 +1,12 @@
 import sys
-if sys.version_info >= (3, 10):
-    import nest_asyncio
-    nest_asyncio.apply()
 import os
+try:
+    if sys.version_info >= (3, 10):
+        import nest_asyncio
+        nest_asyncio.apply()
+except ImportError:
+    # nest_asyncio is optional, continue without it
+    pass
 import logging
 from dotenv import load_dotenv
 from telegram import Update
