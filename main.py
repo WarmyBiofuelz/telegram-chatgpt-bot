@@ -80,6 +80,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_agent_response(messages):
     """Get response from the agent using the same approach as the working Streamlit code."""
     try:
+        logger.info("Starting agent response generation...")
         # Compose the conversation for the agent
         conversation = ""
         for msg in messages:
@@ -87,8 +88,11 @@ async def get_agent_response(messages):
                 conversation += f"User: {msg['content']}\n"
             elif msg["role"] == "assistant":
                 conversation += f"Assistant: {msg['content']}\n"
+        
+        logger.info("Running agent with conversation...")
         # Run the agent and get the response
         result = await Runner.run(agent, conversation)
+        logger.info("Agent response received successfully")
         return result.final_output
     except Exception as e:
         logger.error(f"Agent error: {e}", exc_info=True)
@@ -148,15 +152,25 @@ async def main():
 
 if __name__ == "__main__":
     import asyncio
-    # Use the event loop that's already running (common in some environments)
+    # Production-ready approach for telegram bots
     try:
+        # Try to get existing loop
         loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Schedule the main function to run
-            loop.create_task(main())
-        else:
-            # Run the main function
-            loop.run_until_complete(main())
     except RuntimeError:
-        # Fallback to asyncio.run
-        asyncio.run(main()) 
+        # Create new loop if none exists
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    try:
+        # Run the bot
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        # Handle graceful shutdown
+        pass
+    finally:
+        # Clean up
+        try:
+            loop.close()
+        except RuntimeError:
+            # Loop might already be closed
+            pass 
