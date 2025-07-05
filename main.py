@@ -148,5 +148,15 @@ async def main():
 
 if __name__ == "__main__":
     import asyncio
-    # Simple approach without nest_asyncio complications
-    asyncio.run(main()) 
+    # Use the event loop that's already running (common in some environments)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Schedule the main function to run
+            loop.create_task(main())
+        else:
+            # Run the main function
+            loop.run_until_complete(main())
+    except RuntimeError:
+        # Fallback to asyncio.run
+        asyncio.run(main()) 
