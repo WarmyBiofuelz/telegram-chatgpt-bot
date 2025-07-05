@@ -126,5 +126,28 @@ async def main():
 
 if __name__ == "__main__":
     import asyncio
-    # Simple approach for basic ChatGPT bot
-    asyncio.run(main()) 
+    # Robust approach for telegram bot in production
+    try:
+        # Try to get existing loop
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        # Create new loop if none exists
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    try:
+        # Run the bot
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        # Handle graceful shutdown
+        pass
+    except Exception as e:
+        logger.error(f"Bot error: {e}")
+    finally:
+        # Clean up
+        try:
+            # Don't close the loop if it's still running
+            if not loop.is_running():
+                loop.close()
+        except Exception:
+            pass 
