@@ -1,7 +1,4 @@
-# Python 3.12 required for agents compatibility
+# Original ChatGPT bot requirements
 python-telegram-bot==22.2
 openai>=1.0.0
 python-dotenv>=1.0.0
-nest_asyncio==1.6.0
-duckduckgo-search==4.1.1
-openai-agents<=0.1.0

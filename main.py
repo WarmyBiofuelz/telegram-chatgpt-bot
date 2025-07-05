@@ -2,8 +2,6 @@ import os
 from dotenv import load_dotenv
 import asyncio
 from openai import AsyncOpenAI
-from agents import Agent, Runner, ModelSettings, OpenAIChatCompletionsModel, function_tool
-from duckduckgo_search import DDGS
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 import logging
@@ -11,46 +9,16 @@ import logging
 load_dotenv()
 
 SYSTEM_PROMPT = (
-    "Your knowledge is mostly limited to the end of 2023, and now it is 2025. "
-    "When answering questions involving current events, recent data, or real-time updates, ALWAYS use the web_search tool (DuckDuckGo) to find accurate and up-to-date information. "
-    "If you are unsure or do not have the information, use the web_search tool to look it up online. "
-    "Do not guess or answer from your own knowledge for current or factual questions—always use the web_search tool. "
-    "Example:\n"
-    "User: What is the date today?\n"
-    "Assistant: [uses web_search tool to find the current date]\n"
-    "Whenever needed, use the web_search tool to find the latest information."
+    "You are a helpful AI assistant. You can help with general questions, "
+    "conversations, and provide useful information. Be friendly and helpful."
 )
 
-api_key = os.getenv("SECRET2")
-endpoint = "https://models.github.ai/inference"
-model = "openai/gpt-4.1-nano"
+# Use OpenAI's GPT-3.5 model (original version)
+api_key = os.getenv("OPENAI_API_KEY")
+model = "gpt-3.5-turbo"
 
 client = AsyncOpenAI(
-    base_url=endpoint,
     api_key=api_key
-)
-
-model_instance = OpenAIChatCompletionsModel(
-    model=model,
-    openai_client=client
-)
-
-@function_tool
-def web_search(query: str) -> str:
-    """Ieškok informacijos internete naudodamas DuckDuckGo."""
-    with DDGS() as ddgs:
-        results = ddgs.text(query, region="wt-wt", safesearch="off", max_results=3)
-        snippets = [r["body"] for r in results if "body" in r]
-        return "\n".join(snippets) if snippets else "Nerasta rezultatų."
-
-tools = [web_search]
-
-agent = Agent(
-    name="Assistant",
-    instructions=SYSTEM_PROMPT,
-    model=model_instance,
-    model_settings=ModelSettings(temperature=0.1),
-    tools=tools
 )
 
 # Set up logging
@@ -63,8 +31,7 @@ logger = logging.getLogger(__name__)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a welcome message when the /start command is issued."""
     await update.message.reply_text(
-        "Hello! I'm a ChatGPT-powered bot with automatic web search capabilities. "
-        "I'll automatically search for current information when needed!"
+        "Hello! I'm a ChatGPT-powered bot. How can I help you today?"
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -72,34 +39,39 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "I can help you with:\n"
         "• General questions and conversations\n"
-        "• Real-time information from the web (automatic)\n"
-        "• Current events and latest news\n\n"
+        "• Information and explanations\n"
+        "• Creative writing and ideas\n\n"
         "Just send me any message!"
     )
 
-async def get_agent_response(messages):
-    """Get response from the agent using the same approach as the working Streamlit code."""
+async def get_chatgpt_response(user_message, conversation_history=None):
+    """Get response from ChatGPT using OpenAI's GPT-3.5."""
     try:
-        logger.info("Starting agent response generation...")
-        # Compose the conversation for the agent
-        conversation = ""
-        for msg in messages:
-            if msg["role"] == "user":
-                conversation += f"User: {msg['content']}\n"
-            elif msg["role"] == "assistant":
-                conversation += f"Assistant: {msg['content']}\n"
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT}
+        ]
         
-        logger.info("Running agent with conversation...")
-        # Run the agent and get the response
-        result = await Runner.run(agent, conversation)
-        logger.info("Agent response received successfully")
-        return result.final_output
+        # Add conversation history if available
+        if conversation_history:
+            messages.extend(conversation_history)
+        
+        # Add current user message
+        messages.append({"role": "user", "content": user_message})
+        
+        # Get response from OpenAI
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7
+        )
+        
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        logger.error(f"Agent error: {e}", exc_info=True)
+        logger.error(f"ChatGPT error: {e}", exc_info=True)
         return "Sorry, I couldn't process your request right now. Please try again later."
 
 async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming messages using the agent."""
+    """Handle incoming messages using ChatGPT."""
     user_message = update.message.text
     
     # Initialize conversation history for this user if not exists
@@ -109,15 +81,17 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in context.bot_data['conversations']:
         context.bot_data['conversations'][user_id] = []
     
-    # Add user message to conversation history
-    context.bot_data['conversations'][user_id].append({"role": "user", "content": user_message})
-    
     try:
-        # Get agent response with conversation history
-        response_text = await get_agent_response(context.bot_data['conversations'][user_id])
+        # Get ChatGPT response
+        response_text = await get_chatgpt_response(user_message, context.bot_data['conversations'][user_id])
         
-        # Add assistant response to conversation history
+        # Add user message and response to conversation history
+        context.bot_data['conversations'][user_id].append({"role": "user", "content": user_message})
         context.bot_data['conversations'][user_id].append({"role": "assistant", "content": response_text})
+        
+        # Keep only last 10 messages to prevent context from getting too long
+        if len(context.bot_data['conversations'][user_id]) > 10:
+            context.bot_data['conversations'][user_id] = context.bot_data['conversations'][user_id][-10:]
         
         # Handle Telegram message length limit
         if len(response_text) > 4096:
@@ -133,7 +107,7 @@ async def main():
     """Start the Telegram bot."""
     # Check for required API keys
     if not os.getenv('TELEGRAM_BOT_TOKEN') or not api_key:
-        logger.error("Missing TELEGRAM_BOT_TOKEN or SECRET2 in environment.")
+        logger.error("Missing TELEGRAM_BOT_TOKEN or OPENAI_API_KEY in environment.")
         return
 
     # Build the application
@@ -152,25 +126,5 @@ async def main():
 
 if __name__ == "__main__":
     import asyncio
-    # Production-ready approach for telegram bots
-    try:
-        # Try to get existing loop
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        # Create new loop if none exists
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    try:
-        # Run the bot
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        # Handle graceful shutdown
-        pass
-    finally:
-        # Clean up
-        try:
-            loop.close()
-        except RuntimeError:
-            # Loop might already be closed
-            pass 
+    # Simple approach for basic ChatGPT bot
+    asyncio.run(main()) 
