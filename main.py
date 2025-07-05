@@ -47,9 +47,9 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming messages: send them to OpenAI and reply with the result."""
     user_message = update.message.text
     try:
-        # Add a system prompt for Lithuanian (optional, remove if not needed)
+        # Add a system prompt for Lithuanian with knowledge limitation
         messages = [
-            {"role": "system", "content": "Atsakyk tik lietuvių kalba, nepriklausomai nuo klausimo kalbos. Jei klausimas užduotas kita kalba, vis tiek atsakyk lietuviškai."},
+            {"role": "system", "content": "Atsakyk tik lietuvių kalba, nepriklausomai nuo klausimo kalbos. Jei klausimas užduotas kita kalba, vis tiek atsakyk lietuviškai. Atsakyk tik tuo, ką žinai iš savo žinių. Jei neturi informacijos apie klausimą, atsakyk: 'Atsiprašau, bet neturiu informacijos apie tai.' Nekurk informacijos, jei jos nežinai."},
             {"role": "user", "content": user_message}
         ]
         response = client.chat.completions.create(
