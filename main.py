@@ -2,6 +2,14 @@ import sys
 import os
 import logging
 import asyncio
+
+# Handle nest_asyncio for environments with existing event loops
+try:
+    import nest_asyncio
+    nest_asyncio.apply()
+except ImportError:
+    pass
+
 from telegram.ext import ApplicationBuilder
 from shared.config import TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, LOG_FORMAT, LOG_LEVEL
 
@@ -39,9 +47,9 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except RuntimeError as e:
-        if "already running" in str(e):
+        if "already running" in str(e) or "Cannot close a running event loop" in str(e):
+            # Fallback for environments with existing event loops
             loop = asyncio.get_event_loop()
-            loop.create_task(main())
-            loop.run_forever()
+            loop.run_until_complete(main())
         else:
             raise 
