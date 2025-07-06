@@ -16,6 +16,7 @@ from shared.config import TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, LOG_FORMAT, LOG_LE
 # Import modules
 from modules.chat_module import get_chat_handlers
 from modules.calendar_module import get_calendar_handlers
+from modules.knowledge_module import get_knowledge_handlers
 
 # Set up logging
 logging.basicConfig(format=LOG_FORMAT, level=LOG_LEVEL)
@@ -34,13 +35,14 @@ async def main():
     # Register all handlers from modules
     chat_handlers = get_chat_handlers()
     calendar_handlers = get_calendar_handlers()
+    knowledge_handlers = get_knowledge_handlers()
     
     # Add all handlers to the application
-    for handler in chat_handlers + calendar_handlers:
+    for handler in chat_handlers + calendar_handlers + knowledge_handlers:
         app.add_handler(handler)
 
     # Start the bot
-    logger.info("Bot is starting with chat and calendar modules...")
+    logger.info("Bot is starting with chat, calendar, and knowledge modules...")
     await app.run_polling()
 
 if __name__ == "__main__":
