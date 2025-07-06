@@ -73,52 +73,6 @@ class KnowledgeBase:
 # Initialize knowledge base
 knowledge_base = KnowledgeBase()
 
-async def knowledge_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle knowledge search command."""
-    if not context.args:
-        await update.message.reply_text(
-            "🔍 Knowledge Search\n\n"
-            "Use: /knowledge <your question>\n\n"
-            "Example: /knowledge vacation policy"
-        )
-        return
-    
-    query = ' '.join(context.args)
-    await search_knowledge(update, query)
-
-async def search_knowledge(update: Update, query: str):
-    """Search knowledge base and provide answer."""
-    try:
-        # Search knowledge files
-        results = knowledge_base.search_knowledge(query)
-        
-        if not results:
-            await update.message.reply_text(
-                "❌ I couldn't find specific information about that in our knowledge base.\n\n"
-                "Try asking about:\n"
-                "• Company policies\n"
-                "• Product information\n"
-                "• FAQ topics"
-            )
-            return
-        
-        # Format response
-        response = f"🔍 Knowledge Search Results for: '{query}'\n\n"
-        
-        for i, result in enumerate(results, 1):
-            response += f"📄 {result['file'].replace('_', ' ').title()}:\n"
-            response += f"{result['content']}\n\n"
-        
-        # Limit message length
-        if len(response) > 4000:
-            response = response[:3997] + "..."
-        
-        await update.message.reply_text(response)
-        
-    except Exception as e:
-        logger.error(f"Knowledge search error: {e}", exc_info=True)
-        await update.message.reply_text("Sorry, I encountered an error while searching the knowledge base.")
-
 async def reload_knowledge_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Reload knowledge files (admin command)."""
     try:
@@ -135,7 +89,6 @@ async def reload_knowledge_command(update: Update, context: ContextTypes.DEFAULT
 def get_knowledge_handlers():
     """Return knowledge-related command handlers."""
     return [
-        CommandHandler("knowledge", knowledge_command),
         CommandHandler("reload_knowledge", reload_knowledge_command),
     ]
 
