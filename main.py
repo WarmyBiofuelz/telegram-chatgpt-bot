@@ -20,7 +20,7 @@ from telegram.ext import ContextTypes
 from shared.config import (
     TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, LOG_FORMAT, LOG_LEVEL,
     RATE_LIMIT_SECONDS, MAX_RETRIES, RETRY_DELAY, OPENAI_TIMEOUT,
-    MAX_TOKENS, TEMPERATURE
+    MAX_TOKENS, TEMPERATURE, OPENAI_MODEL, OPENAI_MODEL_FALLBACK
 )
 from openai import OpenAI
 from openai import RateLimitError, APIError, APIConnectionError
@@ -153,11 +153,12 @@ def is_rate_limited(user_id: int) -> bool:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a welcome message when the /start command is issued."""
     await update.message.reply_text(
-        "Labas! Aš esu ChatGPT-powered bot.\n\n"
+        "Labas! Aš esu GPT-4-powered bot.\n\n"
         "Galiu padėti su:\n"
         "• Bendrais klausimais ir pokalbiais\n"
         "• Balsinių žinučių perrašymu ir stiliaus pagerinimu\n"
-        "• Lietuvių kalbos palaikymu\n\n"
+        "• Lietuvių kalbos palaikymu\n"
+        "• Aukščiausios kokybės AI atsakymais\n\n"
         "Siųsk man bet kokį tekstą ar balsinę žinutę ir atsakysiu!"
     )
 
@@ -166,13 +167,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Bot komandos:\n\n"
         "💬 Pokalbis:\n"
-        "• Siųsk bet kokį tekstą ChatGPT atsakymui\n"
+        "• Siųsk bet kokį tekstą GPT-4 atsakymui\n"
         "• Siųsk balsines žinutes perrašymui + stiliaus pagerinimui\n"
         "• Atsakysiu į jūsų klausimus ir bendrausiu\n\n"
         "🎤 Balsinės funkcijos:\n"
         "• Siųsk balsines žinutes lietuvių ar bet kuria kita kalba\n"
-        "• Perrašysiu ir pagerinsiu stilių\n"
+        "• Perrašysiu ir pagerinsiu stilių su GPT-4\n"
         "• Puiku greitiems balsiniams užrašams!\n\n"
+        "🚀 Modelis: GPT-4 (su atsarginio plano GPT-3.5-turbo)\n\n"
         "📊 Statistika:\n"
         "• /stats - Peržiūrėk bot veikimo statistiką\n\n"
         "Siųskite man bet kokį tekstą ar balsinę žinutę!"
@@ -275,12 +277,40 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 {"role": "user", "content": f"Please improve this transcribed text:\n\n{transcribed_text}"}
             ]
             
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=messages,
-                max_tokens=MAX_TOKENS,
-                temperature=TEMPERATURE
-            )
+            # Make API call with retry logic and model fallback for voice processing
+            response = None
+            current_model = OPENAI_MODEL
+            
+            for attempt in range(MAX_RETRIES):
+                try:
+                    response = client.chat.completions.create(
+                        model=current_model,
+                        messages=messages,
+                        max_tokens=MAX_TOKENS,
+                        temperature=TEMPERATURE
+                    )
+                    break
+                except RateLimitError:
+                    if attempt < MAX_RETRIES - 1:
+                        await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+                        continue
+                    else:
+                        raise
+                except (APIError, APIConnectionError) as e:
+                    logger.error(f"OpenAI API error (attempt {attempt + 1}) with model {current_model}: {e}")
+                    if attempt < MAX_RETRIES - 1:
+                        await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+                        continue
+                    else:
+                        raise
+                except Exception as e:
+                    # If GPT-4 fails and we haven't tried fallback yet, switch to GPT-3.5-turbo
+                    if current_model == OPENAI_MODEL and OPENAI_MODEL_FALLBACK and attempt < MAX_RETRIES - 1:
+                        logger.warning(f"GPT-4 failed for voice processing, falling back to {OPENAI_MODEL_FALLBACK}: {e}")
+                        current_model = OPENAI_MODEL_FALLBACK
+                        continue
+                    else:
+                        raise
             
             improved_text = response.choices[0].message.content.strip()
             
@@ -307,7 +337,7 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
             # Record metrics
             response_time = time.time() - start_time
             metrics.record_request(True, response_time, "audio", detected_language)
-            logger.info(f"User {user_id}: Voice processed in {response_time:.2f}s, language: {detected_language}")
+            logger.info(f"User {user_id}: Voice processed in {response_time:.2f}s, language: {detected_language}, model: {current_model}")
             
         finally:
             # Clean up temporary file
@@ -370,12 +400,14 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             {"role": "user", "content": user_message}
         ]
         
-        # Make API call with retry logic
+        # Make API call with retry logic and model fallback
         response = None
+        current_model = OPENAI_MODEL
+        
         for attempt in range(MAX_RETRIES):
             try:
                 response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
+                    model=current_model,
                     messages=messages,
                     max_tokens=MAX_TOKENS,
                     temperature=TEMPERATURE
@@ -388,9 +420,17 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     raise
             except (APIError, APIConnectionError) as e:
-                logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
+                logger.error(f"OpenAI API error (attempt {attempt + 1}) with model {current_model}: {e}")
                 if attempt < MAX_RETRIES - 1:
                     await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+                    continue
+                else:
+                    raise
+            except Exception as e:
+                # If GPT-4 fails and we haven't tried fallback yet, switch to GPT-3.5-turbo
+                if current_model == OPENAI_MODEL and OPENAI_MODEL_FALLBACK and attempt < MAX_RETRIES - 1:
+                    logger.warning(f"GPT-4 failed, falling back to {OPENAI_MODEL_FALLBACK}: {e}")
+                    current_model = OPENAI_MODEL_FALLBACK
                     continue
                 else:
                     raise
@@ -399,7 +439,7 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bot_reply = response.choices[0].message.content.strip()
             response_time = time.time() - start_time
             metrics.record_request(True, response_time, "text", detected_language)
-            logger.info(f"User {user_id}: Text response in {response_time:.2f}s, language: {detected_language}")
+            logger.info(f"User {user_id}: Text response in {response_time:.2f}s, language: {detected_language}, model: {current_model}")
         else:
             raise Exception("No response received from OpenAI")
         
