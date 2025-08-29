@@ -3,6 +3,7 @@ import asyncio
 import time
 import os
 import tempfile
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -34,6 +35,47 @@ client = None
 # Rate limiting and user management
 user_last_message = defaultdict(float)
 
+# Lithuanian language detection patterns
+LITHUANIAN_PATTERNS = [
+    r'\b(ir|ar|bet|tačiau|todėl|nes|kadangi|jei|kai|kol|kad|kur|kaip|kodėl|koks|kokia|kuris|kurie)\b',
+    r'\b(mano|tavo|jo|jos|mūsų|jūsų|savo|šio|šios|šio|šios|to|tos|to|tos)\b',
+    r'\b(aš|tu|jis|ji|mes|jus|jie|jos|tai|šis|šie|šios|tas|tie|tos)\b',
+    r'\b(esu|esi|yra|esame|esate|yra|buvo|bus|būsiu|būsi|būs|būsime|būsite|būs)\b',
+    r'\b(gerai|blogai|gražiai|greitai|lėtai|aukštai|žemai|daug|mažai|nemažai|visai|visiškai)\b',
+    r'\b(taip|ne|galbūt|tikrai|žinoma|žinoma|aišku|aišku|suprantama|suprantama)\b'
+]
+
+def detect_language(text):
+    """Detect if text is in Lithuanian or another language."""
+    if not text:
+        return "unknown"
+    
+    text_lower = text.lower()
+    
+    # Count Lithuanian-specific words and patterns
+    lithuanian_score = 0
+    for pattern in LITHUANIAN_PATTERNS:
+        matches = re.findall(pattern, text_lower)
+        lithuanian_score += len(matches)
+    
+    # Check for Lithuanian-specific characters
+    lithuanian_chars = len(re.findall(r'[ąčęėįšųūž]', text_lower))
+    lithuanian_score += lithuanian_chars * 2  # Weight Lithuanian characters higher
+    
+    # Check for common Lithuanian words
+    common_lithuanian = ['labas', 'ačiū', 'prašau', 'atsiprašau', 'gerai', 'blogai', 'taip', 'ne']
+    for word in common_lithuanian:
+        if word in text_lower:
+            lithuanian_score += 3
+    
+    # Determine language based on score
+    if lithuanian_score >= 3:
+        return "lithuanian"
+    elif lithuanian_score >= 1:
+        return "likely_lithuanian"
+    else:
+        return "other"
+
 class BotMetrics:
     def __init__(self):
         self.total_requests = 0
@@ -43,8 +85,9 @@ class BotMetrics:
         self.start_time = time.time()
         self.audio_requests = 0
         self.text_requests = 0
+        self.lithuanian_requests = 0
     
-    def record_request(self, success: bool, response_time: float, request_type: str = "text"):
+    def record_request(self, success: bool, response_time: float, request_type: str = "text", language: str = "unknown"):
         self.total_requests += 1
         if success:
             self.successful_requests += 1
@@ -55,6 +98,9 @@ class BotMetrics:
             self.audio_requests += 1
         else:
             self.text_requests += 1
+        
+        if language in ["lithuanian", "likely_lithuanian"]:
+            self.lithuanian_requests += 1
         
         # Update average response time
         if self.average_response_time == 0:
@@ -70,6 +116,7 @@ class BotMetrics:
             'total_requests': self.total_requests,
             'text_requests': self.text_requests,
             'audio_requests': self.audio_requests,
+            'lithuanian_requests': self.lithuanian_requests,
             'success_rate': f"{success_rate:.1f}%",
             'avg_response_time': f"{self.average_response_time:.2f}s"
         }
@@ -106,42 +153,43 @@ def is_rate_limited(user_id: int) -> bool:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a welcome message when the /start command is issued."""
     await update.message.reply_text(
-        "Hello! I'm a ChatGPT-powered bot.\n\n"
-        "I can help you with:\n"
-        "• General questions and conversations\n"
-        "• Voice message transcription and style improvement\n"
-        "• Lithuanian language support\n\n"
-        "Just send me any message or voice note and I'll respond!"
+        "Labas! Aš esu ChatGPT-powered bot.\n\n"
+        "Galiu padėti su:\n"
+        "• Bendrais klausimais ir pokalbiais\n"
+        "• Balsinių žinučių perrašymu ir stiliaus pagerinimu\n"
+        "• Lietuvių kalbos palaikymu\n\n"
+        "Siųsk man bet kokį tekstą ar balsinę žinutę ir atsakysiu!"
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a help message when the /help command is issued."""
     await update.message.reply_text(
-        "🤖 Bot Commands:\n\n"
-        "💬 Chat:\n"
-        "• Send any text message for ChatGPT response\n"
-        "• Send voice messages for transcription + style improvement\n"
-        "• I'll answer your questions and chat with you\n\n"
-        "🎤 Voice Features:\n"
-        "• Send voice messages in Lithuanian or any language\n"
-        "• I'll transcribe and improve the style\n"
-        "• Perfect for quick voice notes!\n\n"
-        "📊 Stats:\n"
-        "• /stats - View bot performance statistics\n\n"
-        "Just send me any message or voice note and I'll respond!"
+        "🤖 Bot komandos:\n\n"
+        "💬 Pokalbis:\n"
+        "• Siųsk bet kokį tekstą ChatGPT atsakymui\n"
+        "• Siųsk balsines žinutes perrašymui + stiliaus pagerinimui\n"
+        "• Atsakysiu į jūsų klausimus ir bendrausiu\n\n"
+        "🎤 Balsinės funkcijos:\n"
+        "• Siųsk balsines žinutes lietuvių ar bet kuria kita kalba\n"
+        "• Perrašysiu ir pagerinsiu stilių\n"
+        "• Puiku greitiems balsiniams užrašams!\n\n"
+        "📊 Statistika:\n"
+        "• /stats - Peržiūrėk bot veikimo statistiką\n\n"
+        "Siųskite man bet kokį tekstą ar balsinę žinutę!"
     )
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show bot statistics (admin feature)."""
     stats = metrics.get_stats()
     stats_message = (
-        "📊 Bot Statistics:\n\n"
-        f"⏱️ Uptime: {stats['uptime_hours']:.1f} hours\n"
-        f"📝 Total Requests: {stats['total_requests']}\n"
-        f"💬 Text Requests: {stats['text_requests']}\n"
-        f"🎤 Voice Requests: {stats['audio_requests']}\n"
-        f"✅ Success Rate: {stats['success_rate']}\n"
-        f"⚡ Avg Response Time: {stats['avg_response_time']}"
+        "📊 Bot statistikos:\n\n"
+        f"⏱️ Veikimo laikas: {stats['uptime_hours']:.1f} valandos\n"
+        f"📝 Viso užklausų: {stats['total_requests']}\n"
+        f"💬 Teksto užklausos: {stats['text_requests']}\n"
+        f"🎤 Balsinės užklausos: {stats['audio_requests']}\n"
+        f"🇱🇹 Lietuvių kalbos užklausos: {stats['lithuanian_requests']}\n"
+        f"✅ Sėkmės procentas: {stats['success_rate']}\n"
+        f"⚡ Vidutinis atsakymo laikas: {stats['avg_response_time']}"
     )
     await update.message.reply_text(stats_message)
 
@@ -153,8 +201,8 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
     # Rate limiting check
     if is_rate_limited(user_id):
         await update.message.reply_text(
-            "⏳ Please wait a moment before sending another message. "
-            f"Rate limit: {RATE_LIMIT_SECONDS} seconds between messages."
+            "⏳ Palaukite akimirką prieš siųsdami kitą žinutę. "
+            f"Greitis: {RATE_LIMIT_SECONDS} sekundės tarp žinučių."
         )
         return
     
@@ -162,11 +210,11 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
         # Get the voice message file
         voice = update.message.voice
         if not voice:
-            await update.message.reply_text("❌ No voice message detected.")
+            await update.message.reply_text("❌ Balsinė žinutė nerasta.")
             return
         
         # Send processing message
-        processing_msg = await update.message.reply_text("🎤 Processing your voice message...")
+        processing_msg = await update.message.reply_text("🎤 Apdoruoju jūsų balsinę žinutę...")
         
         # Download the voice file
         file = await context.bot.get_file(voice.file_id)
@@ -179,33 +227,48 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
             # Download the file
             await file.download_to_drive(temp_path)
             
-            # Transcribe audio using OpenAI Whisper
+            # Transcribe audio using OpenAI Whisper with Lithuanian optimization
             with open(temp_path, "rb") as audio_file:
                 transcript_response = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio_file,
-                    language="lt"  # Optimize for Lithuanian
+                    language="lt",  # Force Lithuanian language detection
+                    prompt="Lietuvių kalba, lietuvių kalbos žodžiai, lietuvių kalbos frazės"  # Help Whisper with Lithuanian
                 )
             
             transcribed_text = transcript_response.text
             
             if not transcribed_text.strip():
-                await update.message.reply_text("❌ Could not transcribe the audio. Please try again with clearer speech.")
+                await update.message.reply_text("❌ Nepavyko perrašyti garso. Bandykite dar kartą aiškiau kalbėdami.")
                 return
             
-            # Update processing message
-            await processing_msg.edit_text("✍️ Improving the style of your text...")
+            # Detect language of transcribed text
+            detected_language = detect_language(transcribed_text)
+            logger.info(f"User {user_id}: Detected language: {detected_language}")
             
-            # Improve the style using ChatGPT
-            style_prompt = (
-                "You are a professional Lithuanian language editor and style improver. "
-                "Take the transcribed text and improve it to make it more professional, "
-                "clear, and well-written while maintaining the original meaning. "
-                "If the text is in Lithuanian, improve it in Lithuanian. "
-                "If it's in another language, improve it in that language. "
-                "Make it more formal, clear, and professional. "
-                "Keep the same length or slightly longer, but much better quality."
-            )
+            # Update processing message
+            await processing_msg.edit_text("✍️ Pagerinu jūsų teksto stilių...")
+            
+            # Create language-specific style improvement prompt
+            if detected_language in ["lithuanian", "likely_lithuanian"]:
+                style_prompt = (
+                    "Tu esi profesionalus lietuvių kalbos redaktorius ir stiliaus pagerintojas. "
+                    "Paimk perrašytą tekstą ir pagerink jį, kad jis būtų profesionaliau, "
+                    "aiškiau ir geriau parašytas, išlaikant originalią prasmę. "
+                    "Tekstas yra lietuvių kalba - pagerink jį lietuvių kalba. "
+                    "Padaryk jį formaliau, aiškiau ir profesionaliau. "
+                    "Išlaikyk tą patį ilgį arba šiek tiek ilgesnį, bet daug geresnės kokybės. "
+                    "Naudok standartinę lietuvių kalbos gramatiką ir stilių."
+                )
+            else:
+                style_prompt = (
+                    "You are a professional language editor and style improver. "
+                    "Take the transcribed text and improve it to make it more professional, "
+                    "clear, and well-written while maintaining the original meaning. "
+                    "Improve it in the same language as the original text. "
+                    "Make it more formal, clear, and professional. "
+                    "Keep the same length or slightly longer, but much better quality."
+                )
             
             messages = [
                 {"role": "system", "content": style_prompt},
@@ -221,21 +284,30 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
             
             improved_text = response.choices[0].message.content.strip()
             
-            # Send the results
-            result_message = (
-                "🎤 **Voice Message Results**\n\n"
-                "📝 **Original Transcription:**\n"
-                f"_{transcribed_text}_\n\n"
-                "✨ **Style Improved Version:**\n"
-                f"{improved_text}"
-            )
+            # Create language-specific result message
+            if detected_language in ["lithuanian", "likely_lithuanian"]:
+                result_message = (
+                    "🎤 **Balsinės žinutės rezultatai**\n\n"
+                    "📝 **Originalus perrašymas:**\n"
+                    f"_{transcribed_text}_\n\n"
+                    "✨ **Stiliaus pagerinta versija:**\n"
+                    f"{improved_text}"
+                )
+            else:
+                result_message = (
+                    "🎤 **Voice Message Results**\n\n"
+                    "📝 **Original Transcription:**\n"
+                    f"_{transcribed_text}_\n\n"
+                    "✨ **Style Improved Version:**\n"
+                    f"{improved_text}"
+                )
             
             await processing_msg.edit_text(result_message)
             
             # Record metrics
             response_time = time.time() - start_time
-            metrics.record_request(True, response_time, "audio")
-            logger.info(f"User {user_id}: Voice processed in {response_time:.2f}s")
+            metrics.record_request(True, response_time, "audio", detected_language)
+            logger.info(f"User {user_id}: Voice processed in {response_time:.2f}s, language: {detected_language}")
             
         finally:
             # Clean up temporary file
@@ -245,14 +317,14 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 logger.warning(f"Could not delete temp file {temp_path}: {e}")
         
     except Exception as e:
-        error_message = "❌ Error processing voice message. Please try again."
+        error_message = "❌ Klaida apdorojant balsinę žinutę. Bandykite dar kartą."
         if "rate limit" in str(e).lower():
-            error_message = "🚫 Rate limit exceeded. Please try again in a few minutes."
+            error_message = "🚫 Viršytas greičio limitas. Bandykite po kelių minučių."
         elif "audio" in str(e).lower():
-            error_message = "🔊 Audio processing error. Please check your voice message quality."
+            error_message = "🔊 Garso apdorojimo klaida. Patikrinkite balsinės žinutės kokybę."
         
         await update.message.reply_text(error_message)
-        metrics.record_request(False, time.time() - start_time, "audio")
+        metrics.record_request(False, time.time() - start_time, "audio", "unknown")
         logger.error(f"Voice processing error for user {user_id}: {e}", exc_info=True)
 
 async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -264,20 +336,34 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Rate limiting check
     if is_rate_limited(user_id):
         await update.message.reply_text(
-            "⏳ Please wait a moment before sending another message. "
-            f"Rate limit: {RATE_LIMIT_SECONDS} seconds between messages."
+            "⏳ Palaukite akimirką prieš siųsdami kitą žinutę. "
+            f"Greitis: {RATE_LIMIT_SECONDS} sekundės tarp žinučių."
         )
         return
     
+    # Detect language of the message
+    detected_language = detect_language(user_message)
+    logger.info(f"User {user_id}: Text message language detected: {detected_language}")
+    
     try:
-        # Prepare system prompt
-        system_prompt = (
-            "You are a helpful and friendly AI assistant. "
-            "Respond naturally and helpfully to user messages. "
-            "Keep responses concise but informative. "
-            "If the user writes in Lithuanian, respond in Lithuanian. "
-            "If they write in another language, respond in that language."
-        )
+        # Create language-specific system prompt
+        if detected_language in ["lithuanian", "likely_lithuanian"]:
+            system_prompt = (
+                "Tu esi naudingas ir draugiškas AI asistentas. "
+                "Atsakyk natūraliai ir naudingai į vartotojo žinutes. "
+                "Atsakymus laikyk glaustus, bet informatyvius. "
+                "Vartotojas rašo lietuvių kalba - atsakyk lietuvių kalba. "
+                "Būk draugiškas, profesionalus ir naudingas. "
+                "Naudok standartinę lietuvių kalbos gramatiką ir stilių."
+            )
+        else:
+            system_prompt = (
+                "You are a helpful and friendly AI assistant. "
+                "Respond naturally and helpfully to user messages. "
+                "Keep responses concise but informative. "
+                "If the user writes in Lithuanian, respond in Lithuanian. "
+                "If they write in another language, respond in that language."
+            )
         
         messages = [
             {"role": "system", "content": system_prompt},
@@ -312,22 +398,31 @@ async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if response:
             bot_reply = response.choices[0].message.content.strip()
             response_time = time.time() - start_time
-            metrics.record_request(True, response_time, "text")
-            logger.info(f"User {user_id}: Text response in {response_time:.2f}s")
+            metrics.record_request(True, response_time, "text", detected_language)
+            logger.info(f"User {user_id}: Text response in {response_time:.2f}s, language: {detected_language}")
         else:
             raise Exception("No response received from OpenAI")
         
     except RateLimitError:
-        bot_reply = "🚫 Rate limit exceeded. Please try again in a few minutes."
-        metrics.record_request(False, time.time() - start_time, "text")
+        if detected_language in ["lithuanian", "likely_lithuanian"]:
+            bot_reply = "🚫 Viršytas greičio limitas. Bandykite po kelių minučių."
+        else:
+            bot_reply = "🚫 Rate limit exceeded. Please try again in a few minutes."
+        metrics.record_request(False, time.time() - start_time, "text", detected_language)
         logger.warning(f"Rate limit hit for user {user_id}")
     except (APIError, APIConnectionError) as e:
-        bot_reply = "🔌 Service temporarily unavailable. Please try again later."
-        metrics.record_request(False, time.time() - start_time, "text")
+        if detected_language in ["lithuanian", "likely_lithuanian"]:
+            bot_reply = "🔌 Paslauga laikinai nepasiekiama. Bandykite vėliau."
+        else:
+            bot_reply = "🔌 Service temporarily unavailable. Please try again later."
+        metrics.record_request(False, time.time() - start_time, "text", detected_language)
         logger.error(f"OpenAI API error for user {user_id}: {e}")
     except Exception as e:
-        bot_reply = "❌ An unexpected error occurred. Please try again later."
-        metrics.record_request(False, time.time() - start_time, "text")
+        if detected_language in ["lithuanian", "likely_lithuanian"]:
+            bot_reply = "❌ Įvyko netikėta klaida. Bandykite dar kartą."
+        else:
+            bot_reply = "❌ An unexpected error occurred. Please try again later."
+        metrics.record_request(False, time.time() - start_time, "text", detected_language)
         logger.error(f"Unexpected error for user {user_id}: {e}", exc_info=True)
     
     await update.message.reply_text(bot_reply)
@@ -357,7 +452,7 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chatgpt_reply))
 
     # Start the bot
-    logger.info("Bot is starting with optimized chat and voice functionality...")
+    logger.info("Bot is starting with optimized chat, voice, and Lithuanian language functionality...")
     
     try:
         await app.run_polling()
