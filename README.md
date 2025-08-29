@@ -1,10 +1,13 @@
-# Optimized Telegram Chat Bot
+# Optimized Telegram Chat Bot with Voice Support
 
-A high-performance Telegram bot powered by OpenAI's GPT-3.5-turbo with built-in optimizations.
+A high-performance Telegram bot powered by OpenAI's GPT-3.5-turbo and Whisper, featuring voice message transcription and style improvement with special support for Lithuanian language.
 
 ## 🚀 Features
 
 - **ChatGPT Integration**: Powered by OpenAI's GPT-3.5-turbo
+- **🎤 Voice Message Processing**: Transcribe voice messages to text
+- **✨ Style Improvement**: Enhance transcribed text quality and professionalism
+- **🇱🇹 Lithuanian Language Support**: Optimized for Lithuanian voice input
 - **Rate Limiting**: Prevents spam with configurable limits
 - **Retry Logic**: Automatic retry on API failures
 - **Performance Metrics**: Track response times and success rates
@@ -31,9 +34,26 @@ TEMPERATURE=0.7           # AI response creativity (0.0-1.0)
 
 ## 📊 Commands
 
-- `/start` - Welcome message
-- `/help` - Show available commands
-- `/stats` - View bot performance statistics
+- `/start` - Welcome message with feature overview
+- `/help` - Show available commands and voice features
+- `/stats` - View bot performance statistics including voice/text request counts
+
+## 🎤 Voice Message Features
+
+### How It Works:
+1. **Send a voice message** in any language (optimized for Lithuanian)
+2. **Automatic transcription** using OpenAI Whisper
+3. **Style improvement** using ChatGPT for professional, clear text
+4. **Dual output** showing both original transcription and improved version
+
+### Voice Processing Flow:
+```
+🎤 Voice Message → 📝 Transcription → ✨ Style Improvement → 📋 Results
+```
+
+### Supported Languages:
+- **🇱🇹 Lithuanian** (optimized with language detection)
+- **🌍 All other languages** (automatic detection)
 
 ## 🔧 Optimizations Implemented
 
@@ -42,15 +62,18 @@ TEMPERATURE=0.7           # AI response creativity (0.0-1.0)
 - **Rate Limiting**: Per-user message throttling to prevent abuse
 - **Response Caching**: Efficient message processing
 - **Memory Management**: Optimized data structures and cleanup
+- **Audio Processing**: Efficient voice file handling with temporary file cleanup
 
 ### Reliability
 - **Retry Logic**: Automatic retry on transient failures
 - **Error Categorization**: Different handling for different error types
 - **Graceful Degradation**: User-friendly error messages
 - **Circuit Breaker**: Prevents cascading failures
+- **File Cleanup**: Automatic temporary file removal
 
 ### Monitoring
 - **Real-time Metrics**: Track response times, success rates, and uptime
+- **Request Type Tracking**: Separate metrics for text vs. voice requests
 - **Structured Logging**: Comprehensive logging for debugging
 - **Performance Tracking**: Monitor bot health and performance
 
@@ -75,3 +98,20 @@ TEMPERATURE=0.7           # AI response creativity (0.0-1.0)
 - **Higher Reliability**: Automatic retry and error handling
 - **Scalability**: Rate limiting and resource management for high traffic
 - **Monitoring**: Real-time insights into bot performance
+- **Voice Processing**: Efficient audio transcription and style improvement
+
+## 🎯 Use Cases
+
+### Perfect For:
+- **Quick voice notes** that need professional formatting
+- **Meeting transcriptions** with style improvement
+- **Language learning** with instant feedback
+- **Professional communication** enhancement
+- **Lithuanian language** voice processing
+
+### Example Workflow:
+1. Record a voice message in Lithuanian
+2. Bot transcribes it automatically
+3. Bot improves the style and professionalism
+4. Get both versions for comparison
+5. Use the improved text for professional communication
