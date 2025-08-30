@@ -12,7 +12,7 @@ BOT_NAME = "Horoscope Bot"
 BOT_VERSION = "1.0.0"
 
 # OpenAI Model Configuration
-OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4')  # Default to GPT-4
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o')  # Default to GPT-4o (best quality)
 OPENAI_MODEL_FALLBACK = os.getenv('OPENAI_MODEL_FALLBACK', 'gpt-3.5-turbo')  # Fallback model
 
 # Performance & Rate Limiting

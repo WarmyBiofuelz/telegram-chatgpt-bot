@@ -316,54 +316,63 @@ async def generate_horoscope(name, birthday, language, profession, hobbies, sex,
     # Create language-specific prompt
     if language == "LT":
         prompt = f"""
-Sukurk dienos horoskopą {name} ({sex}), gimusiam {birthday}.
-Profesija: {profession}.
-Pomėgiai: {hobbies}.
-Interesai: {interests}.
+Sukurk asmeninį dienos horoskopą {name} ({sex}), gimusiam {birthday}.
 
-Horoskopas turi būti:
-- Motyvuojantis ir pozityvus
-- Kelti savivertę
-- Turėti šiek tiek humoro
-- Pateikti praktišką patarimą
-- Būti asmeniškas ir šviežias
-- 3-4 sakiniai
+Asmeninė informacija:
+- Profesija: {profession}
+- Pomėgiai: {hobbies}
+- Interesai: {interests}
 
-Nepasikartok, parašyk šviežiai ir įdomiai.
+Horoskopo reikalavimai:
+- Analizuok asmeninę informaciją ir sukurk logišką, asmenišką pranešimą
+- Būk motyvuojantis, bet realistiškas
+- Pateik praktišką patarimą, susijusį su jų gyvenimo situacija
+- Naudok psichologinį supratimą apie žmogų
+- Pridėk šiek tiek humoro, bet išlaikyk profesionalumą
+- Būk originalus ir šviežias - nepasikartok
+- 4-5 sakiniai, gerai suformuluoti
+
+Sukurk horoskopą, kuris atitiktų šio žmogaus asmenybę ir gyvenimo situaciją.
 """
     elif language == "EN":
         prompt = f"""
-Create a daily horoscope for {name} ({sex}), born on {birthday}.
-Profession: {profession}.
-Hobbies: {hobbies}.
-Interests: {interests}.
+Create a personalized daily horoscope for {name} ({sex}), born on {birthday}.
 
-The horoscope should be:
-- Motivating and positive
-- Boost self-esteem
-- Have a bit of humor
-- Provide practical advice
-- Be personal and fresh
-- 3-4 sentences
+Personal information:
+- Profession: {profession}
+- Hobbies: {hobbies}
+- Interests: {interests}
 
-Don't repeat, write fresh and interesting.
+Horoscope requirements:
+- Analyze the personal information and create a logical, personalized message
+- Be motivating but realistic
+- Provide practical advice related to their life situation
+- Use psychological understanding about the person
+- Add some humor while maintaining professionalism
+- Be original and fresh - don't repeat
+- 4-5 well-formulated sentences
+
+Create a horoscope that matches this person's personality and life situation.
 """
     else:  # RU
         prompt = f"""
-Создай дневной гороскоп для {name} ({sex}), родившегося {birthday}.
-Профессия: {profession}.
-Хобби: {hobbies}.
-Интересы: {interests}.
+Создай персональный дневной гороскоп для {name} ({sex}), родившегося {birthday}.
 
-Гороскоп должен быть:
-- Мотивирующим и позитивным
-- Повышать самооценку
-- Иметь немного юмора
-- Давать практический совет
-- Быть личным и свежим
-- 3-4 предложения
+Личная информация:
+- Профессия: {profession}
+- Хобби: {hobbies}
+- Интересы: {interests}
 
-Не повторяйся, пиши свежо и интересно.
+Требования к гороскопу:
+- Проанализируй личную информацию и создай логичное, персональное сообщение
+- Будь мотивирующим, но реалистичным
+- Дай практический совет, связанный с их жизненной ситуацией
+- Используй психологическое понимание о человеке
+- Добавь немного юмора, сохраняя профессионализм
+- Будь оригинальным и свежим - не повторяйся
+- 4-5 хорошо сформулированных предложений
+
+Создай гороскоп, который соответствует личности и жизненной ситуации этого человека.
 """
     
     # Make API call with fallback
