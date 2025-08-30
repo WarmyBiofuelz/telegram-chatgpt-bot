@@ -432,7 +432,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • /start - Pradėti registraciją
 • /horoscope - Gauti šiandienos horoskopą
 • /profile - Peržiūrėti savo profilį
-• /update - Atnaujinti duomenis
+• /test_horoscope - Testuoti horoskopo generavimą
 • /help - Ši pagalba
 
 **Kaip veikia:**
@@ -449,7 +449,35 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 """
     await update.message.reply_text(help_text)
 
-def send_daily_horoscopes():
+async def test_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Test horoscope generation for debugging."""
+    chat_id = update.effective_chat.id
+    
+    # Get user data
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE chat_id = ?", (chat_id,))
+    user = cursor.fetchone()
+    conn.close()
+    
+    if not user:
+        await update.message.reply_text(
+            "Tu dar neesi užsiregistravęs! Naudok /start, kad pradėtum."
+        )
+        return
+    
+    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date = user
+    
+    await update.message.reply_text("🧪 Testuoju horoskopo generavimą...")
+    
+    try:
+        horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex, interests)
+        await update.message.reply_text(f"✅ **Testinis horoskopas:**\n\n{horoscope}")
+    except Exception as e:
+        logger.error(f"Test horoscope error for user {chat_id}: {e}")
+        await update.message.reply_text(f"❌ Klaida: {str(e)}")
+
+async def send_daily_horoscopes():
     """Send daily horoscopes to all registered users."""
     logger.info("Starting daily horoscope sending...")
     
@@ -465,15 +493,43 @@ def send_daily_horoscopes():
     
     logger.info(f"Found {len(all_users)} users for daily horoscopes")
     
-    # This would need to be implemented with proper async handling
-    # For now, we'll just log the users who would receive horoscopes
+    # Get the bot instance from the application
+    from telegram import Bot
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    
     for user in all_users:
         chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date = user
-        logger.info(f"Would send horoscope to {name} (chat_id: {chat_id})")
+        
+        try:
+            # Generate horoscope
+            horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex, interests)
+            
+            # Send horoscope
+            await bot.send_message(chat_id=chat_id, text=horoscope)
+            
+            # Update last horoscope date
+            today = datetime.now().date()
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET last_horoscope_date = ? WHERE chat_id = ?",
+                (today.strftime("%Y-%m-%d"), chat_id)
+            )
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"Sent horoscope to {name} (chat_id: {chat_id})")
+            
+        except Exception as e:
+            logger.error(f"Failed to send horoscope to {name} (chat_id: {chat_id}): {e}")
 
 def schedule_horoscopes():
     """Schedule daily horoscope sending."""
-    schedule.every().day.at("07:30").do(send_daily_horoscopes)
+    def run_async_horoscopes():
+        import asyncio
+        asyncio.run(send_daily_horoscopes())
+    
+    schedule.every().day.at("07:30").do(run_async_horoscopes)
     logger.info("Daily horoscopes scheduled for 07:30")
     
     while True:
@@ -513,6 +569,7 @@ async def main():
     app.add_handler(registration_handler)
     app.add_handler(CommandHandler("horoscope", get_horoscope_command))
     app.add_handler(CommandHandler("profile", profile_command))
+    app.add_handler(CommandHandler("test_horoscope", test_horoscope_command))
     app.add_handler(CommandHandler("help", help_command))
 
     # Start scheduler in a separate thread
