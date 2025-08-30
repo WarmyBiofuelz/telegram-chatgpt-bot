@@ -22,7 +22,7 @@ from telegram.ext import ContextTypes
 from shared.config import (
     TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, LOG_FORMAT, LOG_LEVEL,
     RATE_LIMIT_SECONDS, MAX_RETRIES, RETRY_DELAY, OPENAI_TIMEOUT,
-    MAX_TOKENS, TEMPERATURE, OPENAI_MODEL, OPENAI_MODEL_FALLBACK
+    MAX_TOKENS, TEMPERATURE, OPENAI_MODEL
 )
 from openai import OpenAI
 from openai import RateLimitError, APIError, APIConnectionError
@@ -411,13 +411,11 @@ Create a horoscope that matches this person's personality and life situation."""
     
     prompt = prompts.get(language, prompts["LT"])
     
-    # Make API call with fallback and optimized retry logic
-    current_model = OPENAI_MODEL
-    
+    # Make API call with optimized retry logic
     for attempt in range(MAX_RETRIES):
         try:
             response = client.chat.completions.create(
-                model=current_model,
+                model=OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE
@@ -431,9 +429,8 @@ Create a horoscope that matches this person's personality and life situation."""
             else:
                 raise
         except Exception as e:
-            if current_model == OPENAI_MODEL and OPENAI_MODEL_FALLBACK and attempt < MAX_RETRIES - 1:
-                logger.warning(f"GPT-4o failed, falling back to {OPENAI_MODEL_FALLBACK}: {e}")
-                current_model = OPENAI_MODEL_FALLBACK
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(RETRY_DELAY * (2 ** attempt))  # Exponential backoff
                 continue
             else:
                 raise
