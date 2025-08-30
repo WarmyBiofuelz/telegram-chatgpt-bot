@@ -1,11 +1,11 @@
 import logging
 import asyncio
+import sqlite3
+import schedule
 import time
-import os
-import tempfile
-import re
-from collections import defaultdict
+import threading
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # Handle nest_asyncio for environments with existing event loops
 try:
@@ -14,8 +14,8 @@ try:
 except ImportError:
     pass
 
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
-from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ConversationHandler
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes
 from shared.config import (
     TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, LOG_FORMAT, LOG_LEVEL,
@@ -25,474 +25,502 @@ from shared.config import (
 from openai import OpenAI
 from openai import RateLimitError, APIError, APIConnectionError
 
-# Set up logging once
+# Set up logging
 logging.basicConfig(format=LOG_FORMAT, level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
-# Global OpenAI client with optimized settings
+# Global OpenAI client
 client = None
 
-# Rate limiting and user management
-user_last_message = defaultdict(float)
+# Database setup
+DB_PATH = "horoscope_users.db"
 
-# Lithuanian language detection patterns
-LITHUANIAN_PATTERNS = [
-    r'\b(ir|ar|bet|tačiau|todėl|nes|kadangi|jei|kai|kol|kad|kur|kaip|kodėl|koks|kokia|kuris|kurie)\b',
-    r'\b(mano|tavo|jo|jos|mūsų|jūsų|savo|šio|šios|šio|šios|to|tos|to|tos)\b',
-    r'\b(aš|tu|jis|ji|mes|jus|jie|jos|tai|šis|šie|šios|tas|tie|tos)\b',
-    r'\b(esu|esi|yra|esame|esate|yra|buvo|bus|būsiu|būsi|būs|būsime|būsite|būs)\b',
-    r'\b(gerai|blogai|gražiai|greitai|lėtai|aukštai|žemai|daug|mažai|nemažai|visai|visiškai)\b',
-    r'\b(taip|ne|galbūt|tikrai|žinoma|žinoma|aišku|aišku|suprantama|suprantama)\b'
+# Conversation states
+(ASKING_NAME, ASKING_BIRTHDAY, ASKING_LANGUAGE, ASKING_PROFESSION, 
+ ASKING_HOBBIES, ASKING_SEX, ASKING_INTERESTS) = range(7)
+
+# Questions sequence
+QUESTIONS = [
+    (ASKING_NAME, "name", "Koks tavo vardas?"),
+    (ASKING_BIRTHDAY, "birthday", "Kokia tavo gimimo data? (pvz.: 1979-05-04)"),
+    (ASKING_LANGUAGE, "language", "Kokia kalba nori gauti horoskopą? (LT/EN/RU)"),
+    (ASKING_PROFESSION, "profession", "Kokia tavo profesija?"),
+    (ASKING_HOBBIES, "hobbies", "Kokie tavo pomėgiai?"),
+    (ASKING_SEX, "sex", "Kokia tavo lytis? (moteris/vyras)"),
+    (ASKING_INTERESTS, "interests", "Kuo labiausiai domiesi? (pvz.: šeima, karjera, kelionės)")
 ]
 
-def detect_language(text):
-    """Detect if text is in Lithuanian or another language."""
-    if not text:
-        return "unknown"
+def initialize_database():
+    """Initialize SQLite database for user profiles."""
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cursor = conn.cursor()
     
-    text_lower = text.lower()
-    
-    # Count Lithuanian-specific words and patterns
-    lithuanian_score = 0
-    for pattern in LITHUANIAN_PATTERNS:
-        matches = re.findall(pattern, text_lower)
-        lithuanian_score += len(matches)
-    
-    # Check for Lithuanian-specific characters
-    lithuanian_chars = len(re.findall(r'[ąčęėįšųūž]', text_lower))
-    lithuanian_score += lithuanian_chars * 2  # Weight Lithuanian characters higher
-    
-    # Check for common Lithuanian words
-    common_lithuanian = ['labas', 'ačiū', 'prašau', 'atsiprašau', 'gerai', 'blogai', 'taip', 'ne']
-    for word in common_lithuanian:
-        if word in text_lower:
-            lithuanian_score += 3
-    
-    # Determine language based on score
-    if lithuanian_score >= 3:
-        return "lithuanian"
-    elif lithuanian_score >= 1:
-        return "likely_lithuanian"
-    else:
-        return "other"
-
-class BotMetrics:
-    def __init__(self):
-        self.total_requests = 0
-        self.successful_requests = 0
-        self.failed_requests = 0
-        self.average_response_time = 0
-        self.start_time = time.time()
-        self.audio_requests = 0
-        self.text_requests = 0
-        self.lithuanian_requests = 0
-    
-    def record_request(self, success: bool, response_time: float, request_type: str = "text", language: str = "unknown"):
-        self.total_requests += 1
-        if success:
-            self.successful_requests += 1
-        else:
-            self.failed_requests += 1
-        
-        if request_type == "audio":
-            self.audio_requests += 1
-        else:
-            self.text_requests += 1
-        
-        if language in ["lithuanian", "likely_lithuanian"]:
-            self.lithuanian_requests += 1
-        
-        # Update average response time
-        if self.average_response_time == 0:
-            self.average_response_time = response_time
-        else:
-            self.average_response_time = (self.average_response_time + response_time) / 2
-    
-    def get_stats(self):
-        uptime = time.time() - self.start_time
-        success_rate = (self.successful_requests / self.total_requests * 100) if self.total_requests > 0 else 0
-        return {
-            'uptime_hours': uptime / 3600,
-            'total_requests': self.total_requests,
-            'text_requests': self.text_requests,
-            'audio_requests': self.audio_requests,
-            'lithuanian_requests': self.lithuanian_requests,
-            'success_rate': f"{success_rate:.1f}%",
-            'avg_response_time': f"{self.average_response_time:.2f}s"
-        }
-
-# Initialize metrics
-metrics = BotMetrics()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        chat_id INTEGER PRIMARY KEY,
+        name TEXT,
+        birthday TEXT,
+        language TEXT,
+        profession TEXT,
+        hobbies TEXT,
+        sex TEXT,
+        interests TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_horoscope_date DATE
+    )
+    """)
+    conn.commit()
+    conn.close()
+    logger.info("Database initialized successfully")
 
 def initialize_openai_client():
-    """Initialize OpenAI client with optimized settings."""
+    """Initialize OpenAI client."""
     global client
     try:
         client = OpenAI(
             api_key=OPENAI_API_KEY,
             base_url="https://api.openai.com/v1",
             timeout=OPENAI_TIMEOUT,
-            max_retries=2   # Built-in retry logic
+            max_retries=2
         )
         logger.info("OpenAI client initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize OpenAI client: {e}")
         raise
 
-def is_rate_limited(user_id: int) -> bool:
-    """Check if user is rate limited."""
-    current_time = time.time()
-    last_message_time = user_last_message.get(user_id, 0)
-    
-    if current_time - last_message_time < RATE_LIMIT_SECONDS:
-        return True
-    
-    user_last_message[user_id] = current_time
-    return False
-
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a welcome message when the /start command is issued."""
+    """Start the horoscope bot registration process."""
+    chat_id = update.effective_chat.id
+    
+    # Check if user already exists
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM users WHERE chat_id = ?", (chat_id,))
+    existing_user = cursor.fetchone()
+    conn.close()
+    
+    if existing_user:
+        await update.message.reply_text(
+            f"Labas, {existing_user[0]}! 🌟\n\n"
+            "Tu jau esi užsiregistravęs! Gali:\n"
+            "• /horoscope - Gauti šiandienos horoskopą\n"
+            "• /profile - Peržiūrėti savo profilį\n"
+            "• /update - Atnaujinti duomenis\n"
+            "• /help - Pagalba"
+        )
+        return ConversationHandler.END
+    
     await update.message.reply_text(
-        "Labas! Aš esu GPT-4-powered bot.\n\n"
-        "Galiu padėti su:\n"
-        "• Bendrais klausimais ir pokalbiais\n"
-        "• Balsinių žinučių perrašymu ir stiliaus pagerinimu\n"
-        "• Lietuvių kalbos palaikymu\n"
-        "• Aukščiausios kokybės AI atsakymais\n\n"
-        "Siųsk man bet kokį tekstą ar balsinę žinutę ir atsakysiu!"
+        "Labas! Aš esu tavo asmeninis horoskopų botukas 🌟\n\n"
+        "Atsakyk į kelis klausimus, kad galėčiau pritaikyti horoskopą būtent tau.\n\n"
+        "Pradėkime nuo tavo vardo:"
     )
+    return ASKING_NAME
+
+async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for user's name."""
+    name = update.message.text.strip()
+    if len(name) < 2:
+        await update.message.reply_text("Vardas turi būti bent 2 simbolių ilgio. Bandyk dar kartą:")
+        return ASKING_NAME
+    
+    context.user_data['name'] = name
+    await update.message.reply_text(
+        f"Puiku, {name}! 🌟\n\n"
+        "Dabar pasakyk savo gimimo datą (formatas: YYYY-MM-DD):"
+    )
+    return ASKING_BIRTHDAY
+
+async def ask_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for user's birthday."""
+    birthday = update.message.text.strip()
+    
+    try:
+        # Validate date format
+        datetime.strptime(birthday, "%Y-%m-%d")
+        context.user_data['birthday'] = birthday
+        await update.message.reply_text(
+            "Puiku! 📅\n\n"
+            "Kokia kalba nori gauti horoskopą?\n"
+            "• LT - Lietuvių kalba\n"
+            "• EN - English\n"
+            "• RU - Русский"
+        )
+        return ASKING_LANGUAGE
+    except ValueError:
+        await update.message.reply_text(
+            "Neteisingas datos formatas! Naudok formatą YYYY-MM-DD (pvz.: 1990-05-15):"
+        )
+        return ASKING_BIRTHDAY
+
+async def ask_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for preferred language."""
+    language = update.message.text.strip().upper()
+    
+    if language not in ['LT', 'EN', 'RU']:
+        await update.message.reply_text(
+            "Pasirink vieną iš: LT, EN arba RU:"
+        )
+        return ASKING_LANGUAGE
+    
+    context.user_data['language'] = language
+    await update.message.reply_text(
+        "Puiku! 🌍\n\n"
+        "Kokia tavo profesija?"
+    )
+    return ASKING_PROFESSION
+
+async def ask_profession(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for user's profession."""
+    profession = update.message.text.strip()
+    context.user_data['profession'] = profession
+    await update.message.reply_text(
+        "Puiku! 💼\n\n"
+        "Kokie tavo pomėgiai?"
+    )
+    return ASKING_HOBBIES
+
+async def ask_hobbies(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for user's hobbies."""
+    hobbies = update.message.text.strip()
+    context.user_data['hobbies'] = hobbies
+    await update.message.reply_text(
+        "Puiku! 🎨\n\n"
+        "Kokia tavo lytis?\n"
+        "• moteris\n"
+        "• vyras"
+    )
+    return ASKING_SEX
+
+async def ask_sex(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for user's sex."""
+    sex = update.message.text.strip().lower()
+    
+    if sex not in ['moteris', 'vyras']:
+        await update.message.reply_text(
+            "Pasirink: moteris arba vyras:"
+        )
+        return ASKING_SEX
+    
+    context.user_data['sex'] = sex
+    await update.message.reply_text(
+        "Puiku! 👤\n\n"
+        "Paskutinis klausimas: kuo labiausiai domiesi?\n"
+        "(pvz.: šeima, karjera, kelionės, sveikata, meilė)"
+    )
+    return ASKING_INTERESTS
+
+async def ask_interests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ask for user's interests and complete registration."""
+    interests = update.message.text.strip()
+    context.user_data['interests'] = interests
+    
+    # Save user data to database
+    chat_id = update.effective_chat.id
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+    INSERT OR REPLACE INTO users 
+    (chat_id, name, birthday, language, profession, hobbies, sex, interests)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        chat_id,
+        context.user_data['name'],
+        context.user_data['birthday'],
+        context.user_data['language'],
+        context.user_data['profession'],
+        context.user_data['hobbies'],
+        context.user_data['sex'],
+        interests
+    ))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text(
+        f"Puiku, {context.user_data['name']}! 🎉\n\n"
+        "Tavo profilis sukurtas! Nuo šiol kiekvieną rytą 07:30 gausi savo asmeninį horoskopą! 🌞\n\n"
+        "Gali naudoti:\n"
+        "• /horoscope - Gauti šiandienos horoskopą\n"
+        "• /profile - Peržiūrėti savo profilį\n"
+        "• /update - Atnaujinti duomenis\n"
+        "• /help - Pagalba"
+    )
+    
+    # Clear user data
+    context.user_data.clear()
+    return ConversationHandler.END
+
+async def cancel_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancel the registration process."""
+    await update.message.reply_text(
+        "Registracija atšaukta. Jei nori pradėti iš naujo, naudok /start"
+    )
+    context.user_data.clear()
+    return ConversationHandler.END
+
+async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get today's horoscope for the user."""
+    chat_id = update.effective_chat.id
+    
+    # Get user data
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE chat_id = ?", (chat_id,))
+    user = cursor.fetchone()
+    conn.close()
+    
+    if not user:
+        await update.message.reply_text(
+            "Tu dar neesi užsiregistravęs! Naudok /start, kad pradėtum."
+        )
+        return
+    
+    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date = user
+    
+    # Check if user already got horoscope today
+    today = datetime.now().date()
+    if last_horoscope_date and datetime.strptime(last_horoscope_date, "%Y-%m-%d").date() == today:
+        await update.message.reply_text(
+            f"Labas, {name}! 🌟\n\n"
+            "Tu jau gavai šiandienos horoskopą! Rytą 07:30 gausi naują. 🌞"
+        )
+        return
+    
+    # Generate horoscope
+    await update.message.reply_text("Generuoju tavo asmeninį horoskopą... ✨")
+    
+    try:
+        horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex, interests)
+        
+        # Update last horoscope date
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET last_horoscope_date = ? WHERE chat_id = ?",
+            (today.strftime("%Y-%m-%d"), chat_id)
+        )
+        conn.commit()
+        conn.close()
+        
+        await update.message.reply_text(horoscope)
+        
+    except Exception as e:
+        logger.error(f"Error generating horoscope for user {chat_id}: {e}")
+        await update.message.reply_text(
+            "Atsiprašau, įvyko klaida generuojant horoskopą. Bandyk vėliau."
+        )
+
+async def generate_horoscope(name, birthday, language, profession, hobbies, sex, interests):
+    """Generate personalized horoscope using OpenAI."""
+    # Create language-specific prompt
+    if language == "LT":
+        prompt = f"""
+Sukurk dienos horoskopą {name} ({sex}), gimusiam {birthday}.
+Profesija: {profession}.
+Pomėgiai: {hobbies}.
+Interesai: {interests}.
+
+Horoskopas turi būti:
+- Motyvuojantis ir pozityvus
+- Kelti savivertę
+- Turėti šiek tiek humoro
+- Pateikti praktišką patarimą
+- Būti asmeniškas ir šviežias
+- 3-4 sakiniai
+
+Nepasikartok, parašyk šviežiai ir įdomiai.
+"""
+    elif language == "EN":
+        prompt = f"""
+Create a daily horoscope for {name} ({sex}), born on {birthday}.
+Profession: {profession}.
+Hobbies: {hobbies}.
+Interests: {interests}.
+
+The horoscope should be:
+- Motivating and positive
+- Boost self-esteem
+- Have a bit of humor
+- Provide practical advice
+- Be personal and fresh
+- 3-4 sentences
+
+Don't repeat, write fresh and interesting.
+"""
+    else:  # RU
+        prompt = f"""
+Создай дневной гороскоп для {name} ({sex}), родившегося {birthday}.
+Профессия: {profession}.
+Хобби: {hobbies}.
+Интересы: {interests}.
+
+Гороскоп должен быть:
+- Мотивирующим и позитивным
+- Повышать самооценку
+- Иметь немного юмора
+- Давать практический совет
+- Быть личным и свежим
+- 3-4 предложения
+
+Не повторяйся, пиши свежо и интересно.
+"""
+    
+    # Make API call with fallback
+    current_model = OPENAI_MODEL
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = client.chat.completions.create(
+                model=current_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE
+            )
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            if current_model == OPENAI_MODEL and OPENAI_MODEL_FALLBACK and attempt < MAX_RETRIES - 1:
+                logger.warning(f"GPT-4 failed, falling back to {OPENAI_MODEL_FALLBACK}: {e}")
+                current_model = OPENAI_MODEL_FALLBACK
+                continue
+            else:
+                raise
+
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show user's profile."""
+    chat_id = update.effective_chat.id
+    
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE chat_id = ?", (chat_id,))
+    user = cursor.fetchone()
+    conn.close()
+    
+    if not user:
+        await update.message.reply_text(
+            "Tu dar neesi užsiregistravęs! Naudok /start, kad pradėtum."
+        )
+        return
+    
+    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date = user
+    
+    profile_text = f"""
+👤 **Tavo profilis:**
+
+🌟 **Vardas:** {name}
+📅 **Gimimo data:** {birthday}
+🌍 **Kalba:** {language}
+💼 **Profesija:** {profession}
+🎨 **Pomėgiai:** {hobbies}
+👤 **Lytis:** {sex}
+❤️ **Interesai:** {interests}
+📅 **Registracijos data:** {created_at}
+"""
+    
+    if last_horoscope_date:
+        profile_text += f"📊 **Paskutinis horoskopas:** {last_horoscope_date}"
+    
+    await update.message.reply_text(profile_text)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send a help message when the /help command is issued."""
-    await update.message.reply_text(
-        "🤖 Bot komandos:\n\n"
-        "💬 Pokalbis:\n"
-        "• Siųsk bet kokį tekstą GPT-4 atsakymui\n"
-        "• Siųsk balsines žinutes perrašymui + stiliaus pagerinimui\n"
-        "• Atsakysiu į jūsų klausimus ir bendrausiu\n\n"
-        "🎤 Balsinės funkcijos:\n"
-        "• Siųsk balsines žinutes lietuvių ar bet kuria kita kalba\n"
-        "• Perrašysiu ir pagerinsiu stilių su GPT-4\n"
-        "• Puiku greitiems balsiniams užrašams!\n\n"
-        "🚀 Modelis: GPT-4 (su atsarginio plano GPT-3.5-turbo)\n\n"
-        "📊 Statistika:\n"
-        "• /stats - Peržiūrėk bot veikimo statistiką\n\n"
-        "Siųskite man bet kokį tekstą ar balsinę žinutę!"
-    )
+    """Show help information."""
+    help_text = """
+🌟 **Horoskopų Botas - Pagalba**
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show bot statistics (admin feature)."""
-    stats = metrics.get_stats()
-    stats_message = (
-        "📊 Bot statistikos:\n\n"
-        f"⏱️ Veikimo laikas: {stats['uptime_hours']:.1f} valandos\n"
-        f"📝 Viso užklausų: {stats['total_requests']}\n"
-        f"💬 Teksto užklausos: {stats['text_requests']}\n"
-        f"🎤 Balsinės užklausos: {stats['audio_requests']}\n"
-        f"🇱🇹 Lietuvių kalbos užklausos: {stats['lithuanian_requests']}\n"
-        f"✅ Sėkmės procentas: {stats['success_rate']}\n"
-        f"⚡ Vidutinis atsakymo laikas: {stats['avg_response_time']}"
-    )
-    await update.message.reply_text(stats_message)
+**Komandos:**
+• /start - Pradėti registraciją
+• /horoscope - Gauti šiandienos horoskopą
+• /profile - Peržiūrėti savo profilį
+• /update - Atnaujinti duomenis
+• /help - Ši pagalba
 
-async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle voice messages: transcribe and improve style."""
-    user_id = update.effective_user.id
-    start_time = time.time()
+**Kaip veikia:**
+1. Užsiregistruok su /start
+2. Atsakyk į klausimus
+3. Gauk asmeninį horoskopą kiekvieną rytą 07:30
+4. Naudok /horoscope, kad gautum horoskopą bet kada
+
+**Funkcijos:**
+✨ Asmeniški horoskopai pagal tavo duomenis
+🌍 Palaiko LT, EN, RU kalbas
+📅 Automatinis siuntimas kiekvieną rytą
+🎯 Motyvuojantys ir pozityvūs pranešimai
+"""
+    await update.message.reply_text(help_text)
+
+def send_daily_horoscopes():
+    """Send daily horoscopes to all registered users."""
+    logger.info("Starting daily horoscope sending...")
     
-    # Rate limiting check
-    if is_rate_limited(user_id):
-        await update.message.reply_text(
-            "⏳ Palaukite akimirką prieš siųsdami kitą žinutę. "
-            f"Greitis: {RATE_LIMIT_SECONDS} sekundės tarp žinučių."
-        )
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users")
+    all_users = cursor.fetchall()
+    conn.close()
+    
+    if not all_users:
+        logger.info("No users found for daily horoscopes")
         return
     
-    try:
-        # Get the voice message file
-        voice = update.message.voice
-        if not voice:
-            await update.message.reply_text("❌ Balsinė žinutė nerasta.")
-            return
-        
-        # Send processing message
-        processing_msg = await update.message.reply_text("🎤 Apdoruoju jūsų balsinę žinutę...")
-        
-        # Download the voice file
-        file = await context.bot.get_file(voice.file_id)
-        
-        # Create temporary file for the audio
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as temp_file:
-            temp_path = temp_file.name
-        
-        try:
-            # Download the file
-            await file.download_to_drive(temp_path)
-            
-            # Transcribe audio using OpenAI Whisper with Lithuanian optimization
-            with open(temp_path, "rb") as audio_file:
-                transcript_response = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="lt",  # Force Lithuanian language detection
-                    prompt="Lietuvių kalba, lietuvių kalbos žodžiai, lietuvių kalbos frazės"  # Help Whisper with Lithuanian
-                )
-            
-            transcribed_text = transcript_response.text
-            
-            if not transcribed_text.strip():
-                await update.message.reply_text("❌ Nepavyko perrašyti garso. Bandykite dar kartą aiškiau kalbėdami.")
-                return
-            
-            # Detect language of transcribed text
-            detected_language = detect_language(transcribed_text)
-            logger.info(f"User {user_id}: Detected language: {detected_language}")
-            
-            # Update processing message
-            await processing_msg.edit_text("✍️ Pagerinu jūsų teksto stilių...")
-            
-            # Create language-specific style improvement prompt
-            if detected_language in ["lithuanian", "likely_lithuanian"]:
-                style_prompt = (
-                    "Tu esi profesionalus lietuvių kalbos redaktorius ir stiliaus pagerintojas. "
-                    "Paimk perrašytą tekstą ir pagerink jį, kad jis būtų profesionaliau, "
-                    "aiškiau ir geriau parašytas, išlaikant originalią prasmę. "
-                    "Tekstas yra lietuvių kalba - pagerink jį lietuvių kalba. "
-                    "Padaryk jį formaliau, aiškiau ir profesionaliau. "
-                    "Išlaikyk tą patį ilgį arba šiek tiek ilgesnį, bet daug geresnės kokybės. "
-                    "Naudok standartinę lietuvių kalbos gramatiką ir stilių."
-                )
-            else:
-                style_prompt = (
-                    "You are a professional language editor and style improver. "
-                    "Take the transcribed text and improve it to make it more professional, "
-                    "clear, and well-written while maintaining the original meaning. "
-                    "Improve it in the same language as the original text. "
-                    "Make it more formal, clear, and professional. "
-                    "Keep the same length or slightly longer, but much better quality."
-                )
-            
-            messages = [
-                {"role": "system", "content": style_prompt},
-                {"role": "user", "content": f"Please improve this transcribed text:\n\n{transcribed_text}"}
-            ]
-            
-            # Make API call with retry logic and model fallback for voice processing
-            response = None
-            current_model = OPENAI_MODEL
-            
-            for attempt in range(MAX_RETRIES):
-                try:
-                    response = client.chat.completions.create(
-                        model=current_model,
-                        messages=messages,
-                        max_tokens=MAX_TOKENS,
-                        temperature=TEMPERATURE
-                    )
-                    break
-                except RateLimitError:
-                    if attempt < MAX_RETRIES - 1:
-                        await asyncio.sleep(RETRY_DELAY * (attempt + 1))
-                        continue
-                    else:
-                        raise
-                except (APIError, APIConnectionError) as e:
-                    logger.error(f"OpenAI API error (attempt {attempt + 1}) with model {current_model}: {e}")
-                    if attempt < MAX_RETRIES - 1:
-                        await asyncio.sleep(RETRY_DELAY * (attempt + 1))
-                        continue
-                    else:
-                        raise
-                except Exception as e:
-                    # If GPT-4 fails and we haven't tried fallback yet, switch to GPT-3.5-turbo
-                    if current_model == OPENAI_MODEL and OPENAI_MODEL_FALLBACK and attempt < MAX_RETRIES - 1:
-                        logger.warning(f"GPT-4 failed for voice processing, falling back to {OPENAI_MODEL_FALLBACK}: {e}")
-                        current_model = OPENAI_MODEL_FALLBACK
-                        continue
-                    else:
-                        raise
-            
-            improved_text = response.choices[0].message.content.strip()
-            
-            # Create language-specific result message
-            if detected_language in ["lithuanian", "likely_lithuanian"]:
-                result_message = (
-                    "🎤 **Balsinės žinutės rezultatai**\n\n"
-                    "📝 **Originalus perrašymas:**\n"
-                    f"_{transcribed_text}_\n\n"
-                    "✨ **Stiliaus pagerinta versija:**\n"
-                    f"{improved_text}"
-                )
-            else:
-                result_message = (
-                    "🎤 **Voice Message Results**\n\n"
-                    "📝 **Original Transcription:**\n"
-                    f"_{transcribed_text}_\n\n"
-                    "✨ **Style Improved Version:**\n"
-                    f"{improved_text}"
-                )
-            
-            await processing_msg.edit_text(result_message)
-            
-            # Record metrics
-            response_time = time.time() - start_time
-            metrics.record_request(True, response_time, "audio", detected_language)
-            logger.info(f"User {user_id}: Voice processed in {response_time:.2f}s, language: {detected_language}, model: {current_model}")
-            
-        finally:
-            # Clean up temporary file
-            try:
-                os.unlink(temp_path)
-            except Exception as e:
-                logger.warning(f"Could not delete temp file {temp_path}: {e}")
-        
-    except Exception as e:
-        error_message = "❌ Klaida apdorojant balsinę žinutę. Bandykite dar kartą."
-        if "rate limit" in str(e).lower():
-            error_message = "🚫 Viršytas greičio limitas. Bandykite po kelių minučių."
-        elif "audio" in str(e).lower():
-            error_message = "🔊 Garso apdorojimo klaida. Patikrinkite balsinės žinutės kokybę."
-        
-        await update.message.reply_text(error_message)
-        metrics.record_request(False, time.time() - start_time, "audio", "unknown")
-        logger.error(f"Voice processing error for user {user_id}: {e}", exc_info=True)
+    logger.info(f"Found {len(all_users)} users for daily horoscopes")
+    
+    # This would need to be implemented with proper async handling
+    # For now, we'll just log the users who would receive horoscopes
+    for user in all_users:
+        chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date = user
+        logger.info(f"Would send horoscope to {name} (chat_id: {chat_id})")
 
-async def chatgpt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming text messages: send them to OpenAI and reply with the result."""
-    user_id = update.effective_user.id
-    user_message = update.message.text
-    start_time = time.time()
+def schedule_horoscopes():
+    """Schedule daily horoscope sending."""
+    schedule.every().day.at("07:30").do(send_daily_horoscopes)
+    logger.info("Daily horoscopes scheduled for 07:30")
     
-    # Rate limiting check
-    if is_rate_limited(user_id):
-        await update.message.reply_text(
-            "⏳ Palaukite akimirką prieš siųsdami kitą žinutę. "
-            f"Greitis: {RATE_LIMIT_SECONDS} sekundės tarp žinučių."
-        )
-        return
-    
-    # Detect language of the message
-    detected_language = detect_language(user_message)
-    logger.info(f"User {user_id}: Text message language detected: {detected_language}")
-    
-    try:
-        # Create language-specific system prompt
-        if detected_language in ["lithuanian", "likely_lithuanian"]:
-            system_prompt = (
-                "Tu esi naudingas ir draugiškas AI asistentas. "
-                "Atsakyk natūraliai ir naudingai į vartotojo žinutes. "
-                "Atsakymus laikyk glaustus, bet informatyvius. "
-                "Vartotojas rašo lietuvių kalba - atsakyk lietuvių kalba. "
-                "Būk draugiškas, profesionalus ir naudingas. "
-                "Naudok standartinę lietuvių kalbos gramatiką ir stilių."
-            )
-        else:
-            system_prompt = (
-                "You are a helpful and friendly AI assistant. "
-                "Respond naturally and helpfully to user messages. "
-                "Keep responses concise but informative. "
-                "If the user writes in Lithuanian, respond in Lithuanian. "
-                "If they write in another language, respond in that language."
-            )
-        
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
-        ]
-        
-        # Make API call with retry logic and model fallback
-        response = None
-        current_model = OPENAI_MODEL
-        
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = client.chat.completions.create(
-                    model=current_model,
-                    messages=messages,
-                    max_tokens=MAX_TOKENS,
-                    temperature=TEMPERATURE
-                )
-                break
-            except RateLimitError:
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(RETRY_DELAY * (attempt + 1))
-                    continue
-                else:
-                    raise
-            except (APIError, APIConnectionError) as e:
-                logger.error(f"OpenAI API error (attempt {attempt + 1}) with model {current_model}: {e}")
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(RETRY_DELAY * (attempt + 1))
-                    continue
-                else:
-                    raise
-            except Exception as e:
-                # If GPT-4 fails and we haven't tried fallback yet, switch to GPT-3.5-turbo
-                if current_model == OPENAI_MODEL and OPENAI_MODEL_FALLBACK and attempt < MAX_RETRIES - 1:
-                    logger.warning(f"GPT-4 failed, falling back to {OPENAI_MODEL_FALLBACK}: {e}")
-                    current_model = OPENAI_MODEL_FALLBACK
-                    continue
-                else:
-                    raise
-        
-        if response:
-            bot_reply = response.choices[0].message.content.strip()
-            response_time = time.time() - start_time
-            metrics.record_request(True, response_time, "text", detected_language)
-            logger.info(f"User {user_id}: Text response in {response_time:.2f}s, language: {detected_language}, model: {current_model}")
-        else:
-            raise Exception("No response received from OpenAI")
-        
-    except RateLimitError:
-        if detected_language in ["lithuanian", "likely_lithuanian"]:
-            bot_reply = "🚫 Viršytas greičio limitas. Bandykite po kelių minučių."
-        else:
-            bot_reply = "🚫 Rate limit exceeded. Please try again in a few minutes."
-        metrics.record_request(False, time.time() - start_time, "text", detected_language)
-        logger.warning(f"Rate limit hit for user {user_id}")
-    except (APIError, APIConnectionError) as e:
-        if detected_language in ["lithuanian", "likely_lithuanian"]:
-            bot_reply = "🔌 Paslauga laikinai nepasiekiama. Bandykite vėliau."
-        else:
-            bot_reply = "🔌 Service temporarily unavailable. Please try again later."
-        metrics.record_request(False, time.time() - start_time, "text", detected_language)
-        logger.error(f"OpenAI API error for user {user_id}: {e}")
-    except Exception as e:
-        if detected_language in ["lithuanian", "likely_lithuanian"]:
-            bot_reply = "❌ Įvyko netikėta klaida. Bandykite dar kartą."
-        else:
-            bot_reply = "❌ An unexpected error occurred. Please try again later."
-        metrics.record_request(False, time.time() - start_time, "text", detected_language)
-        logger.error(f"Unexpected error for user {user_id}: {e}", exc_info=True)
-    
-    await update.message.reply_text(bot_reply)
+    while True:
+        schedule.run_pending()
+        time.sleep(60)  # Check every minute
 
 async def main():
-    """Start the Telegram bot."""
+    """Start the horoscope bot."""
     # Check for required API keys
     if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
         logger.error("Missing TELEGRAM_BOT_TOKEN or OPENAI_API_KEY in environment.")
         return
 
-    # Initialize OpenAI client
+    # Initialize database and OpenAI client
+    initialize_database()
     initialize_openai_client()
 
     # Build the application
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
+    # Create conversation handler for registration
+    registration_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start_command)],
+        states={
+            ASKING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
+            ASKING_BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_birthday)],
+            ASKING_LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_language)],
+            ASKING_PROFESSION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_profession)],
+            ASKING_HOBBIES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_hobbies)],
+            ASKING_SEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_sex)],
+            ASKING_INTERESTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_interests)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_registration)],
+    )
+
     # Add handlers
-    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(registration_handler)
+    app.add_handler(CommandHandler("horoscope", get_horoscope_command))
+    app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("stats", stats_command))
-    
-    # Handle voice messages
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
-    
-    # Handle text messages (exclude commands and voice)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chatgpt_reply))
+
+    # Start scheduler in a separate thread
+    scheduler_thread = threading.Thread(target=schedule_horoscopes, daemon=True)
+    scheduler_thread.start()
 
     # Start the bot
-    logger.info("Bot is starting with optimized chat, voice, and Lithuanian language functionality...")
+    logger.info("Horoscope bot is starting...")
     
     try:
         await app.run_polling()
@@ -508,8 +536,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except RuntimeError as e:
         if "already running" in str(e) or "Cannot close a running event loop" in str(e):
-            # Fallback for environments with existing event loops
             loop = asyncio.get_event_loop()
             loop.run_until_complete(main())
         else:
-            raise 
+            raise

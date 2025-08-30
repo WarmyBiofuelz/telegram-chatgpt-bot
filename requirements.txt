@@ -2,3 +2,4 @@ python-telegram-bot==20.7
 openai==1.93.0
 python-dotenv==1.1.1
 nest_asyncio==1.6.0
+schedule==1.2.0

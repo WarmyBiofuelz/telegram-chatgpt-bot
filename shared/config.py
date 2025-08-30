@@ -8,7 +8,7 @@ TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 # Bot Settings
-BOT_NAME = "Simple Chat Bot"
+BOT_NAME = "Horoscope Bot"
 BOT_VERSION = "1.0.0"
 
 # OpenAI Model Configuration
