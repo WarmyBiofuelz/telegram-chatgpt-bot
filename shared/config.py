@@ -12,7 +12,7 @@ BOT_NAME = "Horoscope Bot"
 BOT_VERSION = "1.0.0"
 
 # OpenAI Model Configuration
-OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o')  # Default to GPT-4o (best quality)
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-2024-05-13')  # Default to GPT-4o (best quality)
 
 # Performance & Rate Limiting
 RATE_LIMIT_SECONDS = int(os.getenv('RATE_LIMIT_SECONDS', '2'))
