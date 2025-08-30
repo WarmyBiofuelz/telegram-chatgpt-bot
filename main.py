@@ -6,7 +6,7 @@ import time
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from contextlib import asynccontextmanager
+
 from typing import Optional, Dict, Any
 
 # Handle nest_asyncio for environments with existing event loops
@@ -69,9 +69,8 @@ def _validate_date(date_str: str) -> bool:
     except ValueError:
         return False
 
-@asynccontextmanager
-async def get_db_connection():
-    """Context manager for database connections with connection pooling."""
+def get_db_connection():
+    """Get database connection with optimizations."""
     global _db_connection
     if _db_connection is None:
         _db_connection = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -79,14 +78,7 @@ async def get_db_connection():
         _db_connection.execute("PRAGMA synchronous=NORMAL")
         _db_connection.execute("PRAGMA cache_size=10000")
         _db_connection.execute("PRAGMA temp_store=MEMORY")
-    
-    try:
-        yield _db_connection
-    except Exception:
-        _db_connection.rollback()
-        raise
-    else:
-        _db_connection.commit()
+    return _db_connection
 
 def initialize_database():
     """Initialize SQLite database for user profiles with optimizations."""
@@ -163,10 +155,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     # Check if user already exists
-    async with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
-        existing_user = cursor.fetchone()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
+    existing_user = cursor.fetchone()
+    conn.commit()
     
     if existing_user:
         await update.message.reply_text(
@@ -235,22 +228,23 @@ async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TY
     """Complete user registration and save to database."""
     chat_id = update.effective_chat.id
     
-    async with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-        INSERT OR REPLACE INTO users 
-        (chat_id, name, birthday, language, profession, hobbies, sex, interests, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-        """, (
-            chat_id,
-            context.user_data['name'],
-            context.user_data['birthday'],
-            context.user_data['language'],
-            context.user_data['profession'],
-            context.user_data['hobbies'],
-            context.user_data['sex'],
-            context.user_data['interests']
-        ))
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT OR REPLACE INTO users 
+    (chat_id, name, birthday, language, profession, hobbies, sex, interests, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+    """, (
+        chat_id,
+        context.user_data['name'],
+        context.user_data['birthday'],
+        context.user_data['language'],
+        context.user_data['profession'],
+        context.user_data['hobbies'],
+        context.user_data['sex'],
+        context.user_data['interests']
+    ))
+    conn.commit()
     
     await update.message.reply_text(
         f"Puiku, {context.user_data['name']}! 🎉\n\n"
@@ -305,10 +299,11 @@ async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     # Get user data
-    async with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
-        user = cursor.fetchone()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
+    user = cursor.fetchone()
+    conn.commit()
     
     if not user:
         await update.message.reply_text(
@@ -334,12 +329,13 @@ async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TY
         horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex, interests)
         
         # Update last horoscope date
-        async with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE users SET last_horoscope_date = ? WHERE chat_id = ?",
-                (today.strftime("%Y-%m-%d"), chat_id)
-            )
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET last_horoscope_date = ? WHERE chat_id = ?",
+            (today.strftime("%Y-%m-%d"), chat_id)
+        )
+        conn.commit()
         
         await update.message.reply_text(horoscope)
         
@@ -439,10 +435,11 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show user's profile."""
     chat_id = update.effective_chat.id
     
-    async with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
-        user = cursor.fetchone()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
+    user = cursor.fetchone()
+    conn.commit()
     
     if not user:
         await update.message.reply_text(
@@ -500,10 +497,11 @@ async def test_horoscope_command(update: Update, context: ContextTypes.DEFAULT_T
     """Test horoscope generation for debugging."""
     chat_id = update.effective_chat.id
     
-    async with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
-        user = cursor.fetchone()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
+    user = cursor.fetchone()
+    conn.commit()
     
     if not user:
         await update.message.reply_text(
@@ -526,10 +524,11 @@ async def send_daily_horoscopes():
     """Send daily horoscopes to all registered users with optimizations."""
     logger.info("Starting daily horoscope sending...")
     
-    async with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE is_active = 1")
-        all_users = cursor.fetchall()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE is_active = 1")
+    all_users = cursor.fetchall()
+    conn.commit()
     
     if not all_users:
         logger.info("No users found for daily horoscopes")
@@ -573,12 +572,13 @@ async def send_horoscope_to_user(bot, user):
         
         # Update last horoscope date
         today = datetime.now().date()
-        async with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE users SET last_horoscope_date = ? WHERE chat_id = ?",
-                (today.strftime("%Y-%m-%d"), chat_id)
-            )
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET last_horoscope_date = ? WHERE chat_id = ?",
+            (today.strftime("%Y-%m-%d"), chat_id)
+        )
+        conn.commit()
         
         logger.info(f"Sent horoscope to {name} (chat_id: {chat_id})")
         
