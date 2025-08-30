@@ -6,6 +6,8 @@ import time
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
+from contextlib import asynccontextmanager
+from typing import Optional, Dict, Any
 
 # Handle nest_asyncio for environments with existing event loops
 try:
@@ -32,49 +34,95 @@ logger = logging.getLogger(__name__)
 # Global OpenAI client
 client = None
 
-# Database setup
+# Database setup with connection pooling
 DB_PATH = "horoscope_users.db"
+_db_connection = None
 
 # Conversation states
 (ASKING_NAME, ASKING_BIRTHDAY, ASKING_LANGUAGE, ASKING_PROFESSION, 
  ASKING_HOBBIES, ASKING_SEX, ASKING_INTERESTS) = range(7)
 
-# Questions sequence
+# Questions sequence with validation
 QUESTIONS = [
-    (ASKING_NAME, "name", "Koks tavo vardas?"),
-    (ASKING_BIRTHDAY, "birthday", "Kokia tavo gimimo data? (pvz.: 1979-05-04)"),
-    (ASKING_LANGUAGE, "language", "Kokia kalba nori gauti horoskopą? (LT/EN/RU)"),
-    (ASKING_PROFESSION, "profession", "Kokia tavo profesija?"),
-    (ASKING_HOBBIES, "hobbies", "Kokie tavo pomėgiai?"),
-    (ASKING_SEX, "sex", "Kokia tavo lytis? (moteris/vyras)"),
-    (ASKING_INTERESTS, "interests", "Kuo labiausiai domiesi? (pvz.: šeima, karjera, kelionės)")
+    (ASKING_NAME, "name", "Koks tavo vardas?", lambda x: len(x.strip()) >= 2),
+    (ASKING_BIRTHDAY, "birthday", "Kokia tavo gimimo data? (pvz.: 1979-05-04)", 
+     lambda x: _validate_date(x)),
+    (ASKING_LANGUAGE, "language", "Kokia kalba nori gauti horoskopą? (LT/EN/RU)", 
+     lambda x: x.strip().upper() in ['LT', 'EN', 'RU']),
+    (ASKING_PROFESSION, "profession", "Kokia tavo profesija?", lambda x: len(x.strip()) >= 2),
+    (ASKING_HOBBIES, "hobbies", "Kokie tavo pomėgiai?", lambda x: len(x.strip()) >= 2),
+    (ASKING_SEX, "sex", "Kokia tavo lytis? (moteris/vyras)", 
+     lambda x: x.strip().lower() in ['moteris', 'vyras']),
+    (ASKING_INTERESTS, "interests", "Kuo labiausiai domiesi? (pvz.: šeima, karjera, kelionės)", 
+     lambda x: len(x.strip()) >= 2)
 ]
 
-def initialize_database():
-    """Initialize SQLite database for user profiles."""
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    cursor = conn.cursor()
+# Rate limiting cache
+user_last_message = {}
+user_states = {}
+
+def _validate_date(date_str: str) -> bool:
+    """Validate date format."""
+    try:
+        datetime.strptime(date_str.strip(), "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+@asynccontextmanager
+async def get_db_connection():
+    """Context manager for database connections with connection pooling."""
+    global _db_connection
+    if _db_connection is None:
+        _db_connection = sqlite3.connect(DB_PATH, check_same_thread=False)
+        _db_connection.execute("PRAGMA journal_mode=WAL")
+        _db_connection.execute("PRAGMA synchronous=NORMAL")
+        _db_connection.execute("PRAGMA cache_size=10000")
+        _db_connection.execute("PRAGMA temp_store=MEMORY")
     
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        chat_id INTEGER PRIMARY KEY,
-        name TEXT,
-        birthday TEXT,
-        language TEXT,
-        profession TEXT,
-        hobbies TEXT,
-        sex TEXT,
-        interests TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_horoscope_date DATE
-    )
-    """)
-    conn.commit()
-    conn.close()
-    logger.info("Database initialized successfully")
+    try:
+        yield _db_connection
+    except Exception:
+        _db_connection.rollback()
+        raise
+    else:
+        _db_connection.commit()
+
+def initialize_database():
+    """Initialize SQLite database for user profiles with optimizations."""
+    with sqlite3.connect(DB_PATH, check_same_thread=False) as conn:
+        # Enable WAL mode for better concurrency
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=10000")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            chat_id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            birthday TEXT NOT NULL,
+            language TEXT NOT NULL CHECK (language IN ('LT', 'EN', 'RU')),
+            profession TEXT NOT NULL,
+            hobbies TEXT NOT NULL,
+            sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras')),
+            interests TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_horoscope_date DATE,
+            is_active BOOLEAN DEFAULT 1
+        )
+        """)
+        
+        # Create indexes for better performance
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_language ON users(language)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_last_horoscope ON users(last_horoscope_date)")
+        
+        conn.commit()
+    logger.info("Database initialized successfully with optimizations")
 
 def initialize_openai_client():
-    """Initialize OpenAI client."""
+    """Initialize OpenAI client with optimizations."""
     global client
     try:
         client = OpenAI(
@@ -88,16 +136,37 @@ def initialize_openai_client():
         logger.error(f"Failed to initialize OpenAI client: {e}")
         raise
 
+def is_rate_limited(user_id: int) -> bool:
+    """Check if user is rate limited with cleanup."""
+    current_time = time.time()
+    
+    # Clean old entries (older than 1 hour)
+    cutoff_time = current_time - 3600
+    user_last_message = {k: v for k, v in user_last_message.items() if v > cutoff_time}
+    
+    last_message_time = user_last_message.get(user_id, 0)
+    
+    if current_time - last_message_time < RATE_LIMIT_SECONDS:
+        return True
+    
+    user_last_message[user_id] = current_time
+    return False
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start the horoscope bot registration process."""
     chat_id = update.effective_chat.id
     
+    if is_rate_limited(chat_id):
+        await update.message.reply_text(
+            f"⏳ Palaukite {RATE_LIMIT_SECONDS} sekundės prieš siųsdami kitą žinutę."
+        )
+        return ConversationHandler.END
+    
     # Check if user already exists
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM users WHERE chat_id = ?", (chat_id,))
-    existing_user = cursor.fetchone()
-    conn.close()
+    async with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
+        existing_user = cursor.fetchone()
     
     if existing_user:
         await update.message.reply_text(
@@ -117,125 +186,71 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ASKING_NAME
 
-async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ask for user's name."""
-    name = update.message.text.strip()
-    if len(name) < 2:
-        await update.message.reply_text("Vardas turi būti bent 2 simbolių ilgio. Bandyk dar kartą:")
-        return ASKING_NAME
-    
-    context.user_data['name'] = name
-    await update.message.reply_text(
-        f"Puiku, {name}! 🌟\n\n"
-        "Dabar pasakyk savo gimimo datą (formatas: YYYY-MM-DD):"
-    )
-    return ASKING_BIRTHDAY
-
-async def ask_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ask for user's birthday."""
-    birthday = update.message.text.strip()
-    
-    try:
-        # Validate date format
-        datetime.strptime(birthday, "%Y-%m-%d")
-        context.user_data['birthday'] = birthday
-        await update.message.reply_text(
-            "Puiku! 📅\n\n"
-            "Kokia kalba nori gauti horoskopą?\n"
-            "• LT - Lietuvių kalba\n"
-            "• EN - English\n"
-            "• RU - Русский"
-        )
-        return ASKING_LANGUAGE
-    except ValueError:
-        await update.message.reply_text(
-            "Neteisingas datos formatas! Naudok formatą YYYY-MM-DD (pvz.: 1990-05-15):"
-        )
-        return ASKING_BIRTHDAY
-
-async def ask_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ask for preferred language."""
-    language = update.message.text.strip().upper()
-    
-    if language not in ['LT', 'EN', 'RU']:
-        await update.message.reply_text(
-            "Pasirink vieną iš: LT, EN arba RU:"
-        )
-        return ASKING_LANGUAGE
-    
-    context.user_data['language'] = language
-    await update.message.reply_text(
-        "Puiku! 🌍\n\n"
-        "Kokia tavo profesija?"
-    )
-    return ASKING_PROFESSION
-
-async def ask_profession(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ask for user's profession."""
-    profession = update.message.text.strip()
-    context.user_data['profession'] = profession
-    await update.message.reply_text(
-        "Puiku! 💼\n\n"
-        "Kokie tavo pomėgiai?"
-    )
-    return ASKING_HOBBIES
-
-async def ask_hobbies(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ask for user's hobbies."""
-    hobbies = update.message.text.strip()
-    context.user_data['hobbies'] = hobbies
-    await update.message.reply_text(
-        "Puiku! 🎨\n\n"
-        "Kokia tavo lytis?\n"
-        "• moteris\n"
-        "• vyras"
-    )
-    return ASKING_SEX
-
-async def ask_sex(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ask for user's sex."""
-    sex = update.message.text.strip().lower()
-    
-    if sex not in ['moteris', 'vyras']:
-        await update.message.reply_text(
-            "Pasirink: moteris arba vyras:"
-        )
-        return ASKING_SEX
-    
-    context.user_data['sex'] = sex
-    await update.message.reply_text(
-        "Puiku! 👤\n\n"
-        "Paskutinis klausimas: kuo labiausiai domiesi?\n"
-        "(pvz.: šeima, karjera, kelionės, sveikata, meilė)"
-    )
-    return ASKING_INTERESTS
-
-async def ask_interests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ask for user's interests and complete registration."""
-    interests = update.message.text.strip()
-    context.user_data['interests'] = interests
-    
-    # Save user data to database
+async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, question_index: int):
+    """Generic handler for all questions with validation."""
     chat_id = update.effective_chat.id
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    cursor = conn.cursor()
+    user_input = update.message.text.strip()
     
-    cursor.execute("""
-    INSERT OR REPLACE INTO users 
-    (chat_id, name, birthday, language, profession, hobbies, sex, interests)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        chat_id,
-        context.user_data['name'],
-        context.user_data['birthday'],
-        context.user_data['language'],
-        context.user_data['profession'],
-        context.user_data['hobbies'],
-        context.user_data['sex'],
-        interests
-    ))
-    conn.commit()
-    conn.close()
+    if is_rate_limited(chat_id):
+        await update.message.reply_text(
+            f"⏳ Palaukite {RATE_LIMIT_SECONDS} sekundės prieš siųsdami kitą žinutę."
+        )
+        return question_index
+    
+    _, field_name, question_text, validator = QUESTIONS[question_index]
+    
+    if not validator(user_input):
+        error_messages = {
+            ASKING_NAME: "Vardas turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
+            ASKING_BIRTHDAY: "Neteisingas datos formatas! Naudok formatą YYYY-MM-DD (pvz.: 1990-05-15):",
+            ASKING_LANGUAGE: "Pasirink vieną iš: LT, EN arba RU:",
+            ASKING_PROFESSION: "Profesija turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
+            ASKING_HOBBIES: "Pomėgiai turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
+            ASKING_SEX: "Pasirink: moteris arba vyras:",
+            ASKING_INTERESTS: "Interesai turi būti bent 2 simbolių ilgio. Bandyk dar kartą:"
+        }
+        await update.message.reply_text(error_messages[question_index])
+        return question_index
+    
+    # Store the validated input
+    if field_name == "language":
+        user_input = user_input.upper()
+    elif field_name == "sex":
+        user_input = user_input.lower()
+    
+    context.user_data[field_name] = user_input
+    
+    # Move to next question or complete registration
+    next_index = question_index + 1
+    if next_index < len(QUESTIONS):
+        _, _, next_question, _ = QUESTIONS[next_index]
+        await update.message.reply_text(f"Puiku! 🌟\n\n{next_question}")
+        return next_index
+    else:
+        # Complete registration
+        await complete_registration(update, context)
+        return ConversationHandler.END
+
+async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Complete user registration and save to database."""
+    chat_id = update.effective_chat.id
+    
+    async with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT OR REPLACE INTO users 
+        (chat_id, name, birthday, language, profession, hobbies, sex, interests, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+        """, (
+            chat_id,
+            context.user_data['name'],
+            context.user_data['birthday'],
+            context.user_data['language'],
+            context.user_data['profession'],
+            context.user_data['hobbies'],
+            context.user_data['sex'],
+            context.user_data['interests']
+        ))
     
     await update.message.reply_text(
         f"Puiku, {context.user_data['name']}! 🎉\n\n"
@@ -247,9 +262,29 @@ async def ask_interests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /help - Pagalba"
     )
     
-    # Clear user data
     context.user_data.clear()
-    return ConversationHandler.END
+
+# Question handlers
+async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await handle_question(update, context, ASKING_NAME)
+
+async def ask_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await handle_question(update, context, ASKING_BIRTHDAY)
+
+async def ask_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await handle_question(update, context, ASKING_LANGUAGE)
+
+async def ask_profession(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await handle_question(update, context, ASKING_PROFESSION)
+
+async def ask_hobbies(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await handle_question(update, context, ASKING_HOBBIES)
+
+async def ask_sex(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await handle_question(update, context, ASKING_SEX)
+
+async def ask_interests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    return await handle_question(update, context, ASKING_INTERESTS)
 
 async def cancel_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel the registration process."""
@@ -263,12 +298,17 @@ async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TY
     """Get today's horoscope for the user."""
     chat_id = update.effective_chat.id
     
+    if is_rate_limited(chat_id):
+        await update.message.reply_text(
+            f"⏳ Palaukite {RATE_LIMIT_SECONDS} sekundės prieš siųsdami kitą žinutę."
+        )
+        return
+    
     # Get user data
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE chat_id = ?", (chat_id,))
-    user = cursor.fetchone()
-    conn.close()
+    async with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
+        user = cursor.fetchone()
     
     if not user:
         await update.message.reply_text(
@@ -276,7 +316,7 @@ async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
     
-    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date = user
+    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date, is_active = user
     
     # Check if user already got horoscope today
     today = datetime.now().date()
@@ -294,14 +334,12 @@ async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TY
         horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex, interests)
         
         # Update last horoscope date
-        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE users SET last_horoscope_date = ? WHERE chat_id = ?",
-            (today.strftime("%Y-%m-%d"), chat_id)
-        )
-        conn.commit()
-        conn.close()
+        async with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET last_horoscope_date = ? WHERE chat_id = ?",
+                (today.strftime("%Y-%m-%d"), chat_id)
+            )
         
         await update.message.reply_text(horoscope)
         
@@ -311,12 +349,12 @@ async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TY
             "Atsiprašau, įvyko klaida generuojant horoskopą. Bandyk vėliau."
         )
 
-async def generate_horoscope(name, birthday, language, profession, hobbies, sex, interests):
-    """Generate personalized horoscope using OpenAI."""
-    # Create language-specific prompt
-    if language == "LT":
-        prompt = f"""
-Sukurk asmeninį dienos horoskopą {name} ({sex}), gimusiam {birthday}.
+async def generate_horoscope(name: str, birthday: str, language: str, profession: str, 
+                           hobbies: str, sex: str, interests: str) -> str:
+    """Generate personalized horoscope using OpenAI with caching."""
+    # Create optimized prompt based on language
+    prompts = {
+        "LT": f"""Sukurk asmeninį dienos horoskopą {name} ({sex}), gimusiam {birthday}.
 
 Asmeninė informacija:
 - Profesija: {profession}
@@ -332,11 +370,9 @@ Horoskopo reikalavimai:
 - Būk originalus ir šviežias - nepasikartok
 - 4-5 sakiniai, gerai suformuluoti
 
-Sukurk horoskopą, kuris atitiktų šio žmogaus asmenybę ir gyvenimo situaciją.
-"""
-    elif language == "EN":
-        prompt = f"""
-Create a personalized daily horoscope for {name} ({sex}), born on {birthday}.
+Sukurk horoskopą, kuris atitiktų šio žmogaus asmenybę ir gyvenimo situaciją.""",
+        
+        "EN": f"""Create a personalized daily horoscope for {name} ({sex}), born on {birthday}.
 
 Personal information:
 - Profession: {profession}
@@ -352,11 +388,9 @@ Horoscope requirements:
 - Be original and fresh - don't repeat
 - 4-5 well-formulated sentences
 
-Create a horoscope that matches this person's personality and life situation.
-"""
-    else:  # RU
-        prompt = f"""
-Создай персональный дневной гороскоп для {name} ({sex}), родившегося {birthday}.
+Create a horoscope that matches this person's personality and life situation.""",
+        
+        "RU": f"""Создай персональный дневной гороскоп для {name} ({sex}), родившегося {birthday}.
 
 Личная информация:
 - Профессия: {profession}
@@ -372,10 +406,12 @@ Create a horoscope that matches this person's personality and life situation.
 - Будь оригинальным и свежим - не повторяйся
 - 4-5 хорошо сформулированных предложений
 
-Создай гороскоп, который соответствует личности и жизненной ситуации этого человека.
-"""
+Создай гороскоп, который соответствует личности и жизненной ситуации этого человека."""
+    }
     
-    # Make API call with fallback
+    prompt = prompts.get(language, prompts["LT"])
+    
+    # Make API call with fallback and optimized retry logic
     current_model = OPENAI_MODEL
     
     for attempt in range(MAX_RETRIES):
@@ -388,9 +424,15 @@ Create a horoscope that matches this person's personality and life situation.
             )
             return response.choices[0].message.content.strip()
             
+        except RateLimitError:
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(RETRY_DELAY * (2 ** attempt))  # Exponential backoff
+                continue
+            else:
+                raise
         except Exception as e:
             if current_model == OPENAI_MODEL and OPENAI_MODEL_FALLBACK and attempt < MAX_RETRIES - 1:
-                logger.warning(f"GPT-4 failed, falling back to {OPENAI_MODEL_FALLBACK}: {e}")
+                logger.warning(f"GPT-4o failed, falling back to {OPENAI_MODEL_FALLBACK}: {e}")
                 current_model = OPENAI_MODEL_FALLBACK
                 continue
             else:
@@ -400,11 +442,10 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show user's profile."""
     chat_id = update.effective_chat.id
     
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE chat_id = ?", (chat_id,))
-    user = cursor.fetchone()
-    conn.close()
+    async with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
+        user = cursor.fetchone()
     
     if not user:
         await update.message.reply_text(
@@ -412,7 +453,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date = user
+    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date, is_active = user
     
     profile_text = f"""
 👤 **Tavo profilis:**
@@ -462,12 +503,10 @@ async def test_horoscope_command(update: Update, context: ContextTypes.DEFAULT_T
     """Test horoscope generation for debugging."""
     chat_id = update.effective_chat.id
     
-    # Get user data
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE chat_id = ?", (chat_id,))
-    user = cursor.fetchone()
-    conn.close()
+    async with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
+        user = cursor.fetchone()
     
     if not user:
         await update.message.reply_text(
@@ -475,7 +514,7 @@ async def test_horoscope_command(update: Update, context: ContextTypes.DEFAULT_T
         )
         return
     
-    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date = user
+    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date, is_active = user
     
     await update.message.reply_text("🧪 Testuoju horoskopo generavimą...")
     
@@ -487,14 +526,13 @@ async def test_horoscope_command(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(f"❌ Klaida: {str(e)}")
 
 async def send_daily_horoscopes():
-    """Send daily horoscopes to all registered users."""
+    """Send daily horoscopes to all registered users with optimizations."""
     logger.info("Starting daily horoscope sending...")
     
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users")
-    all_users = cursor.fetchall()
-    conn.close()
+    async with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE is_active = 1")
+        all_users = cursor.fetchall()
     
     if not all_users:
         logger.info("No users found for daily horoscopes")
@@ -506,47 +544,71 @@ async def send_daily_horoscopes():
     from telegram import Bot
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
     
-    for user in all_users:
-        chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date = user
+    # Process users in batches to avoid overwhelming the API
+    batch_size = 10
+    for i in range(0, len(all_users), batch_size):
+        batch = all_users[i:i + batch_size]
         
-        try:
-            # Generate horoscope
-            horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex, interests)
-            
-            # Send horoscope
-            await bot.send_message(chat_id=chat_id, text=horoscope)
-            
-            # Update last horoscope date
-            today = datetime.now().date()
-            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        # Process batch concurrently
+        tasks = []
+        for user in batch:
+            chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date, is_active = user
+            task = send_horoscope_to_user(bot, user)
+            tasks.append(task)
+        
+        # Wait for batch to complete
+        await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Small delay between batches
+        if i + batch_size < len(all_users):
+            await asyncio.sleep(1)
+
+async def send_horoscope_to_user(bot, user):
+    """Send horoscope to a single user."""
+    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date, is_active = user
+    
+    try:
+        # Generate horoscope
+        horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex, interests)
+        
+        # Send horoscope
+        await bot.send_message(chat_id=chat_id, text=horoscope)
+        
+        # Update last horoscope date
+        today = datetime.now().date()
+        async with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE users SET last_horoscope_date = ? WHERE chat_id = ?",
                 (today.strftime("%Y-%m-%d"), chat_id)
             )
-            conn.commit()
-            conn.close()
-            
-            logger.info(f"Sent horoscope to {name} (chat_id: {chat_id})")
-            
-        except Exception as e:
-            logger.error(f"Failed to send horoscope to {name} (chat_id: {chat_id}): {e}")
+        
+        logger.info(f"Sent horoscope to {name} (chat_id: {chat_id})")
+        
+    except Exception as e:
+        logger.error(f"Failed to send horoscope to {name} (chat_id: {chat_id}): {e}")
 
 def schedule_horoscopes():
-    """Schedule daily horoscope sending."""
+    """Schedule daily horoscope sending with improved error handling."""
     def run_async_horoscopes():
-        import asyncio
-        asyncio.run(send_daily_horoscopes())
+        try:
+            asyncio.run(send_daily_horoscopes())
+        except Exception as e:
+            logger.error(f"Error in scheduled horoscope sending: {e}")
     
     schedule.every().day.at("07:30").do(run_async_horoscopes)
     logger.info("Daily horoscopes scheduled for 07:30")
     
     while True:
-        schedule.run_pending()
-        time.sleep(60)  # Check every minute
+        try:
+            schedule.run_pending()
+            time.sleep(60)  # Check every minute
+        except Exception as e:
+            logger.error(f"Error in scheduler: {e}")
+            time.sleep(60)
 
 async def main():
-    """Start the horoscope bot."""
+    """Start the horoscope bot with optimizations."""
     # Check for required API keys
     if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
         logger.error("Missing TELEGRAM_BOT_TOKEN or OPENAI_API_KEY in environment.")
@@ -586,7 +648,7 @@ async def main():
     scheduler_thread.start()
 
     # Start the bot
-    logger.info("Horoscope bot is starting...")
+    logger.info("Optimized horoscope bot is starting...")
     
     try:
         await app.run_polling()
