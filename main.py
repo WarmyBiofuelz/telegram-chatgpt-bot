@@ -130,6 +130,7 @@ def initialize_openai_client():
 
 def is_rate_limited(user_id: int) -> bool:
     """Check if user is rate limited with cleanup."""
+    global user_last_message
     current_time = time.time()
     
     # Clean old entries (older than 1 hour)
