@@ -147,8 +147,10 @@ def is_rate_limited(user_id: int) -> bool:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start the horoscope bot registration process."""
     chat_id = update.effective_chat.id
+    logger.info(f"Start command received from chat_id: {chat_id}")
     
     if is_rate_limited(chat_id):
+        logger.warning(f"User {chat_id} is rate limited")
         await update.message.reply_text(
             f"⏳ Palaukite {RATE_LIMIT_SECONDS} sekundės prieš siųsdami kitą žinutę."
         )
@@ -162,6 +164,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     
     if existing_user:
+        logger.info(f"Existing user {existing_user[0]} found for chat_id: {chat_id}")
         await update.message.reply_text(
             f"Labas, {existing_user[0]}! 🌟\n\n"
             "Tu jau esi užsiregistravęs! Gali:\n"
@@ -172,6 +175,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
     
+    logger.info(f"Starting registration for new user chat_id: {chat_id}")
     await update.message.reply_text(
         "Labas! Aš esu tavo asmeninis horoskopų botukas 🌟\n\n"
         "Atsakyk į kelis klausimus, kad galėčiau pritaikyti horoskopą būtent tau.\n\n"
@@ -467,6 +471,12 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(profile_text)
 
+async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Simple test command to verify bot is working."""
+    chat_id = update.effective_chat.id
+    logger.info(f"Test command received from chat_id: {chat_id}")
+    await update.message.reply_text("✅ Bot is working! Test command received.")
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help information."""
     help_text = """
@@ -474,6 +484,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 **Komandos:**
 • /start - Pradėti registraciją
+• /test - Testuoti ar botas veikia
 • /horoscope - Gauti šiandienos horoskopą
 • /profile - Peržiūrėti savo profilį
 • /test_horoscope - Testuoti horoskopo generavimą
@@ -633,8 +644,9 @@ async def main():
         fallbacks=[CommandHandler("cancel", cancel_registration)],
     )
 
-    # Add handlers
+    # Add handlers - IMPORTANT: ConversationHandler must be added first
     app.add_handler(registration_handler)
+    app.add_handler(CommandHandler("test", test_command))
     app.add_handler(CommandHandler("horoscope", get_horoscope_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("test_horoscope", test_horoscope_command))
@@ -646,8 +658,11 @@ async def main():
 
     # Start the bot
     logger.info("Optimized horoscope bot is starting...")
+    logger.info(f"Bot token: {TELEGRAM_BOT_TOKEN[:10]}..." if TELEGRAM_BOT_TOKEN else "No bot token!")
+    logger.info(f"OpenAI model: {OPENAI_MODEL}")
     
     try:
+        logger.info("Starting bot polling...")
         await app.run_polling()
     except KeyboardInterrupt:
         logger.info("Bot shutdown requested")
