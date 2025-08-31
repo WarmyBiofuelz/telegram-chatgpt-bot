@@ -430,35 +430,61 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
 async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Complete user registration and save to database."""
     chat_id = update.effective_chat.id
+    logger.info(f"Completing registration for chat_id: {chat_id}")
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-    INSERT OR REPLACE INTO users 
-    (chat_id, name, birthday, language, profession, hobbies, sex, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-    """, (
-        chat_id,
-        context.user_data['name'],
-        context.user_data['birthday'],
-        context.user_data['language'],
-        context.user_data['profession'],
-        context.user_data['hobbies'],
-        context.user_data['sex']
-    ))
-    conn.commit()
-    
-    await update.message.reply_text(
-        f"Puiku, {context.user_data['name']}! 🎉\n\n"
-        "Tavo profilis sukurtas! Nuo šiol kiekvieną rytą 07:30 (Lietuvos laiku) gausi savo asmeninį horoskopą! 🌞\n\n"
-        "Gali naudoti:\n"
-        "• /horoscope - Gauti šiandienos horoskopą\n"
-        "• /profile - Peržiūrėti savo profilį\n"
-        "• /update - Atnaujinti duomenis\n"
-        "• /help - Pagalba"
-    )
-    
-    context.user_data.clear()
+    try:
+        # Validate all required data is present
+        required_fields = ['name', 'birthday', 'language', 'profession', 'hobbies', 'sex']
+        missing_fields = [field for field in required_fields if field not in context.user_data]
+        
+        if missing_fields:
+            logger.error(f"Missing fields for {chat_id}: {missing_fields}")
+            await update.message.reply_text(
+                "Atsiprašau, įvyko klaida registracijos metu. Naudok /reset ir pradėk iš naujo."
+            )
+            return
+        
+        logger.info(f"User data for {chat_id}: {context.user_data}")
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT OR REPLACE INTO users 
+        (chat_id, name, birthday, language, profession, hobbies, sex, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+        """, (
+            chat_id,
+            context.user_data['name'],
+            context.user_data['birthday'],
+            context.user_data['language'],
+            context.user_data['profession'],
+            context.user_data['hobbies'],
+            context.user_data['sex']
+        ))
+        conn.commit()
+        logger.info(f"User {chat_id} successfully saved to database")
+        
+        # Get appropriate completion message based on language
+        user_language = context.user_data.get('language', 'LT')
+        completion_messages = {
+            "LT": f"Puiku, {context.user_data['name']}! 🎉\n\nTavo profilis sukurtas! Nuo šiol kiekvieną rytą 07:30 (Lietuvos laiku) gausi savo asmeninį horoskopą! 🌞\n\nGali naudoti:\n• /horoscope - Gauti horoskopą bet kada\n• /profile - Peržiūrėti savo profilį\n• /help - Pagalba",
+            "EN": f"Great, {context.user_data['name']}! 🎉\n\nYour profile has been created! From now on, every morning at 07:30 (Lithuanian time) you'll receive your personal horoscope! 🌞\n\nYou can use:\n• /horoscope - Get horoscope anytime\n• /profile - View your profile\n• /help - Help",
+            "RU": f"Отлично, {context.user_data['name']}! 🎉\n\nВаш профиль создан! Отныне каждое утро в 07:30 (литовское время) вы будете получать свой личный гороскоп! 🌞\n\nВы можете использовать:\n• /horoscope - Получить гороскоп в любое время\n• /profile - Посмотреть профиль\n• /help - Помощь",
+            "LV": f"Lieliski, {context.user_data['name']}! 🎉\n\nJūsu profils ir izveidots! No šī brīža katru rītu plkst. 07:30 (Lietuvas laiks) jūs saņemsiet savu personīgo horoskopu! 🌞\n\nJūs varat izmantot:\n• /horoscope - Saņemt horoskopu jebkurā laikā\n• /profile - Apskatīt savu profilu\n• /help - Palīdzība"
+        }
+        
+        completion_message = completion_messages.get(user_language, completion_messages["LT"])
+        await update.message.reply_text(completion_message)
+        
+        # Clear user data after successful registration
+        context.user_data.clear()
+        logger.info(f"Registration completed successfully for {chat_id}")
+        
+    except Exception as e:
+        logger.error(f"Error completing registration for {chat_id}: {e}")
+        await update.message.reply_text(
+            "Atsiprašau, įvyko klaida registracijos metu. Naudok /reset ir pradėk iš naujo."
+        )
 
 # Question handlers
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -500,27 +526,39 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Delete user from database
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM users WHERE chat_id = ?", (chat_id,))
-    conn.commit()
-    
-    # Clear any conversation state
-    context.user_data.clear()
-    
-    # Clear rate limiting cache for this user
-    if chat_id in user_last_message:
-        del user_last_message[chat_id]
-    if chat_id in user_states:
-        del user_states[chat_id]
-    
-    logger.info(f"User {chat_id} data reset successfully")
-    
-    await update.message.reply_text(
-        "🔄 Tavo duomenys ištrinti! ✅\n\n"
-        "Dabar gali pradėti registraciją iš naujo su komanda /start"
-    )
+    try:
+        # Delete user from database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM users WHERE chat_id = ?", (chat_id,))
+        conn.commit()
+        logger.info(f"User {chat_id} deleted from database")
+        
+        # Clear any conversation state
+        context.user_data.clear()
+        logger.info(f"User data cleared for {chat_id}")
+        
+        # Clear rate limiting cache for this user
+        if chat_id in user_last_message:
+            del user_last_message[chat_id]
+        if chat_id in user_states:
+            del user_states[chat_id]
+        logger.info(f"Rate limiting cache cleared for {chat_id}")
+        
+        # Force conversation handler to end
+        await update.message.reply_text(
+            "🔄 Tavo duomenys ištrinti! ✅\n\n"
+            "Dabar gali pradėti registraciją iš naujo su komanda /start"
+        )
+        
+        logger.info(f"User {chat_id} data reset successfully")
+        return ConversationHandler.END
+        
+    except Exception as e:
+        logger.error(f"Error resetting user {chat_id}: {e}")
+        await update.message.reply_text(
+            "Atsiprašau, įvyko klaida. Bandyk dar kartą arba susisiek su administratoriumi."
+        )
 
 async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get today's horoscope for the user."""
@@ -738,6 +776,30 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Test command received from chat_id: {chat_id}")
     await update.message.reply_text("✅ Bot is working! Test command received.")
 
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Debug command to show current state."""
+    chat_id = update.effective_chat.id
+    
+    # Check if user exists in database
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE chat_id = ?", (chat_id,))
+    user = cursor.fetchone()
+    
+    debug_info = f"🔍 **Debug Info for {chat_id}:**\n\n"
+    
+    if user:
+        debug_info += f"✅ User exists in database\n"
+        debug_info += f"📊 User data: {user}\n"
+    else:
+        debug_info += f"❌ User not found in database\n"
+    
+    debug_info += f"\n📝 Current user_data: {context.user_data}\n"
+    debug_info += f"⏱️ Rate limited: {is_rate_limited(chat_id)}\n"
+    debug_info += f"🗂️ User states: {user_states.get(chat_id, 'None')}\n"
+    
+    await update.message.reply_text(debug_info)
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help information."""
     help_text = """
@@ -927,6 +989,7 @@ async def main():
     # Add handlers - IMPORTANT: ConversationHandler must be added first
     app.add_handler(registration_handler)
     app.add_handler(CommandHandler("test", test_command))
+    app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(CommandHandler("horoscope", get_horoscope_command))
     app.add_handler(CommandHandler("profile", profile_command))
