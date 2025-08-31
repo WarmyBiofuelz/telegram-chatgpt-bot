@@ -822,42 +822,19 @@ async def main():
     app.add_handler(CommandHandler("test_db", test_db_command))
     app.add_handler(CommandHandler("horoscope", horoscope_command))
     
-    # Check if we should use webhook (for Render)
-    use_webhook = os.getenv('USE_WEBHOOK', 'false').lower() == 'true'
-    webhook_url = os.getenv('WEBHOOK_URL')
-    port = int(os.getenv('PORT', 8000))
+    # Force polling mode for Render Hobby Plan compatibility
+    logger.info("Starting bot in polling mode (Hobby Plan compatible)...")
+    logger.info("Note: Webhooks may not work reliably on Render Hobby Plan")
     
-    if use_webhook and webhook_url:
-        # Use webhook mode (better for Render)
-        logger.info("Starting bot in webhook mode...")
-        logger.info(f"Webhook URL: {webhook_url}")
-        logger.info(f"Port: {port}")
-        
-        # Set webhook first
-        try:
-            await app.bot.set_webhook(
-                url=webhook_url,
-                secret_token=os.getenv('WEBHOOK_SECRET', '')
-            )
-            logger.info("Webhook set successfully")
-        except Exception as e:
-            logger.error(f"Failed to set webhook: {e}")
-            logger.info("Falling back to polling mode...")
-            await app.run_polling()
-            return
-        
-        # Start webhook server
-        await app.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            webhook_url=webhook_url,
-            secret_token=os.getenv('WEBHOOK_SECRET', '')
-        )
-    else:
-        # Use polling mode (for local development)
-        logger.info("Starting bot in polling mode...")
-        logger.info("To use webhook mode, set USE_WEBHOOK=true and WEBHOOK_URL")
-        await app.run_polling()
+    # Clear any existing webhook to prevent conflicts
+    try:
+        await app.bot.delete_webhook()
+        logger.info("Cleared existing webhook")
+    except Exception as e:
+        logger.warning(f"Could not clear webhook: {e}")
+    
+    # Use polling mode
+    await app.run_polling()
 
 if __name__ == "__main__":
     asyncio.run(main())
