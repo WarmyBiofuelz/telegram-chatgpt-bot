@@ -833,7 +833,12 @@ async def main():
     except Exception as e:
         logger.warning(f"Could not clear webhook: {e}")
     
+    # Wait a bit to ensure webhook is cleared
+    logger.info("Waiting 5 seconds to ensure webhook is cleared...")
+    await asyncio.sleep(5)
+    
     # Use polling mode
+    logger.info("Starting polling mode...")
     await app.run_polling()
 
 if __name__ == "__main__":
