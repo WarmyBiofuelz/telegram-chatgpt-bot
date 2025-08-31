@@ -44,15 +44,18 @@ _db_connection = None
 
 # Questions sequence with validation (reordered: Language first)
 QUESTIONS = [
-    (ASKING_LANGUAGE, "language", "Kokia kalba nori gauti horoskopą? (LT/EN/RU/LV)", 
+    (ASKING_LANGUAGE, "language", 
      lambda x: x.strip().upper() in ['LT', 'EN', 'RU', 'LV']),
-    (ASKING_NAME, "name", "Koks tavo vardas?", lambda x: len(x.strip()) >= 2),
-    (ASKING_SEX, "sex", "Kokia tavo lytis? (moteris/vyras)", 
-     lambda x: x.strip().lower() in ['moteris', 'vyras']),
-    (ASKING_BIRTHDAY, "birthday", "Kokia tavo gimimo data? (pvz.: 1979-05-04)", 
+    (ASKING_NAME, "name", 
+     lambda x: len(x.strip()) >= 2),
+    (ASKING_SEX, "sex", 
+     lambda x: x.strip().lower() in ['moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis']),
+    (ASKING_BIRTHDAY, "birthday", 
      lambda x: _validate_date(x)),
-    (ASKING_PROFESSION, "profession", "Kokia tavo profesija?", lambda x: len(x.strip()) >= 2),
-    (ASKING_HOBBIES, "hobbies", "Kokie tavo pomėgiai?", lambda x: len(x.strip()) >= 2 and len(x.strip()) <= 500),
+    (ASKING_PROFESSION, "profession", 
+     lambda x: len(x.strip()) >= 2),
+    (ASKING_HOBBIES, "hobbies", 
+     lambda x: len(x.strip()) >= 2 and len(x.strip()) <= 500),
 ]
 
 # Rate limiting cache
