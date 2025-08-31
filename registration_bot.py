@@ -626,6 +626,22 @@ async def main():
     if use_webhook and webhook_url:
         # Use webhook mode (better for Render)
         logger.info("Starting bot in webhook mode...")
+        logger.info(f"Webhook URL: {webhook_url}")
+        
+        # Set webhook first
+        try:
+            await app.bot.set_webhook(
+                url=webhook_url,
+                secret_token=os.getenv('WEBHOOK_SECRET', '')
+            )
+            logger.info("Webhook set successfully")
+        except Exception as e:
+            logger.error(f"Failed to set webhook: {e}")
+            logger.info("Falling back to polling mode...")
+            await app.run_polling()
+            return
+        
+        # Start webhook server
         await app.run_webhook(
             listen="0.0.0.0",
             port=int(os.getenv('PORT', 8000)),
