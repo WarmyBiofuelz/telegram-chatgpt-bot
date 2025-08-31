@@ -38,27 +38,64 @@ client = None
 DB_PATH = "horoscope_users.db"
 _db_connection = None
 
-# Conversation states
-(ASKING_NAME, ASKING_BIRTHDAY, ASKING_LANGUAGE, ASKING_PROFESSION, 
- ASKING_HOBBIES, ASKING_SEX) = range(6)
+# Conversation states (reordered: Language first, then Name, Sex, Birthday, Profession, Hobbies)
+(ASKING_LANGUAGE, ASKING_NAME, ASKING_SEX, ASKING_BIRTHDAY, ASKING_PROFESSION, 
+ ASKING_HOBBIES) = range(6)
 
-# Questions sequence with validation
+# Questions sequence with validation (reordered: Language first)
 QUESTIONS = [
+    (ASKING_LANGUAGE, "language", "Kokia kalba nori gauti horoskopą? (LT/EN/RU/LV)", 
+     lambda x: x.strip().upper() in ['LT', 'EN', 'RU', 'LV']),
     (ASKING_NAME, "name", "Koks tavo vardas?", lambda x: len(x.strip()) >= 2),
-    (ASKING_BIRTHDAY, "birthday", "Kokia tavo gimimo data? (pvz.: 1979-05-04)", 
-     lambda x: _validate_date(x)),
-    (ASKING_LANGUAGE, "language", "Kokia kalba nori gauti horoskopą? (LT/EN/RU)", 
-     lambda x: x.strip().upper() in ['LT', 'EN', 'RU']),
-    (ASKING_PROFESSION, "profession", "Kokia tavo profesija?", lambda x: len(x.strip()) >= 2),
-    (ASKING_HOBBIES, "hobbies", "Kokie tavo pomėgiai?", lambda x: len(x.strip()) >= 2),
     (ASKING_SEX, "sex", "Kokia tavo lytis? (moteris/vyras)", 
      lambda x: x.strip().lower() in ['moteris', 'vyras']),
-
+    (ASKING_BIRTHDAY, "birthday", "Kokia tavo gimimo data? (pvz.: 1979-05-04)", 
+     lambda x: _validate_date(x)),
+    (ASKING_PROFESSION, "profession", "Kokia tavo profesija?", lambda x: len(x.strip()) >= 2),
+    (ASKING_HOBBIES, "hobbies", "Kokie tavo pomėgiai?", lambda x: len(x.strip()) >= 2),
 ]
 
 # Rate limiting cache
 user_last_message = {}
 user_states = {}
+
+def get_question_text(field: str, language: str = "LT") -> str:
+    """Get question text in the appropriate language."""
+    questions = {
+        "LT": {
+            "language": "Kokia kalba nori gauti horoskopą? (LT/EN/RU/LV)",
+            "name": "Koks tavo vardas?",
+            "sex": "Kokia tavo lytis? (moteris/vyras)",
+            "birthday": "Kokia tavo gimimo data? (pvz.: 1979-05-04)",
+            "profession": "Kokia tavo profesija?",
+            "hobbies": "Kokie tavo pomėgiai?"
+        },
+        "EN": {
+            "language": "What language do you want to receive horoscopes in? (LT/EN/RU/LV)",
+            "name": "What is your name?",
+            "sex": "What is your gender? (woman/man)",
+            "birthday": "What is your birth date? (e.g.: 1979-05-04)",
+            "profession": "What is your profession?",
+            "hobbies": "What are your hobbies?"
+        },
+        "RU": {
+            "language": "На каком языке вы хотите получать гороскопы? (LT/EN/RU/LV)",
+            "name": "Как вас зовут?",
+            "sex": "Какой у вас пол? (женщина/мужчина)",
+            "birthday": "Какая у вас дата рождения? (например: 1979-05-04)",
+            "profession": "Какая у вас профессия?",
+            "hobbies": "Какие у вас хобби?"
+        },
+        "LV": {
+            "language": "Kādā valodā vēlaties saņemt horoskopus? (LT/EN/RU/LV)",
+            "name": "Kāds ir jūsu vārds?",
+            "sex": "Kāds ir jūsu dzimums? (sieviete/vīrietis)",
+            "birthday": "Kāda ir jūsu dzimšanas datums? (piemēram: 1979-05-04)",
+            "profession": "Kāda ir jūsu profesija?",
+            "hobbies": "Kādi ir jūsu hobiji?"
+        }
+    }
+    return questions.get(language, questions["LT"]).get(field, "")
 
 def _validate_date(date_str: str) -> bool:
     """Validate date format."""
@@ -173,6 +210,41 @@ def get_zodiac_sign_ru(birthday: str) -> str:
     except ValueError:
         return "Неизвестно"
 
+def get_zodiac_sign_lv(birthday: str) -> str:
+    """Calculate zodiac sign in Latvian from birthday (YYYY-MM-DD format)."""
+    try:
+        date_obj = datetime.strptime(birthday, '%Y-%m-%d')
+        month = date_obj.month
+        day = date_obj.day
+        
+        # Zodiac sign dates
+        if (month == 3 and day >= 21) or (month == 4 and day <= 19):
+            return "Auns"  # Aries
+        elif (month == 4 and day >= 20) or (month == 5 and day <= 20):
+            return "Vērsis"  # Taurus
+        elif (month == 5 and day >= 21) or (month == 6 and day <= 20):
+            return "Dvīņi"  # Gemini
+        elif (month == 6 and day >= 21) or (month == 7 and day <= 22):
+            return "Vēzis"  # Cancer
+        elif (month == 7 and day >= 23) or (month == 8 and day <= 22):
+            return "Lauva"  # Leo
+        elif (month == 8 and day >= 23) or (month == 9 and day <= 22):
+            return "Jaunava"  # Virgo
+        elif (month == 9 and day >= 23) or (month == 10 and day <= 22):
+            return "Svari"  # Libra
+        elif (month == 10 and day >= 23) or (month == 11 and day <= 21):
+            return "Skorpions"  # Scorpio
+        elif (month == 11 and day >= 22) or (month == 12 and day <= 21):
+            return "Strēlnieks"  # Sagittarius
+        elif (month == 12 and day >= 22) or (month == 1 and day <= 19):
+            return "Mežāzis"  # Capricorn
+        elif (month == 1 and day >= 20) or (month == 2 and day <= 18):
+            return "Ūdensvīrs"  # Aquarius
+        else:  # (month == 2 and day >= 19) or (month == 3 and day <= 20)
+            return "Zivis"  # Pisces
+    except ValueError:
+        return "Nezināms"
+
 def get_db_connection():
     """Get database connection with optimizations."""
     global _db_connection
@@ -198,7 +270,7 @@ def initialize_database():
             chat_id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
             birthday TEXT NOT NULL,
-            language TEXT NOT NULL CHECK (language IN ('LT', 'EN', 'RU')),
+            language TEXT NOT NULL CHECK (language IN ('LT', 'EN', 'RU', 'LV')),
             profession TEXT NOT NULL,
             hobbies TEXT NOT NULL,
             sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras')),
@@ -287,10 +359,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "Labas! Aš esu tavo asmeninis horoskopų botukas 🌟\n\n"
             "Atsakyk į kelis klausimus, kad galėčiau pritaikyti horoskopą būtent tau.\n\n"
-            "Pradėkime nuo tavo vardo:"
+            "Pradėkime nuo kalbos pasirinkimo:"
         )
-        logger.info(f"Registration message sent to chat_id: {chat_id}, returning ASKING_NAME")
-        return ASKING_NAME
+        await update.message.reply_text(get_question_text("language", "LT"))
+        logger.info(f"Registration message sent to chat_id: {chat_id}, returning ASKING_LANGUAGE")
+        return ASKING_LANGUAGE
     except Exception as e:
         logger.error(f"Error sending registration message to {chat_id}: {e}")
         await update.message.reply_text("Atsiprašau, įvyko klaida. Bandyk dar kartą.")
@@ -313,11 +386,10 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
         error_messages = {
             ASKING_NAME: "Vardas turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
             ASKING_BIRTHDAY: "Neteisingas datos formatas! Naudok formatą YYYY-MM-DD (pvz.: 1990-05-15):",
-            ASKING_LANGUAGE: "Pasirink vieną iš: LT, EN arba RU:",
+            ASKING_LANGUAGE: "Pasirink vieną iš: LT, EN, RU arba LV:",
             ASKING_PROFESSION: "Profesija turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
             ASKING_HOBBIES: "Pomėgiai turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
             ASKING_SEX: "Pasirink: moteris arba vyras:",
-
         }
         await update.message.reply_text(error_messages[question_index])
         return question_index
@@ -333,8 +405,22 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
     # Move to next question or complete registration
     next_index = question_index + 1
     if next_index < len(QUESTIONS):
-        _, _, next_question, _ = QUESTIONS[next_index]
-        await update.message.reply_text(f"Puiku! 🌟\n\n{next_question}")
+        _, next_field, _, _ = QUESTIONS[next_index]
+        
+        # Get the user's selected language for subsequent questions
+        user_language = context.user_data.get('language', 'LT')
+        next_question_text = get_question_text(next_field, user_language)
+        
+        # Get appropriate "Great!" message based on language
+        great_messages = {
+            "LT": "Puiku! 🌟",
+            "EN": "Great! 🌟", 
+            "RU": "Отлично! 🌟",
+            "LV": "Lieliski! 🌟"
+        }
+        great_msg = great_messages.get(user_language, "Puiku! 🌟")
+        
+        await update.message.reply_text(f"{great_msg}\n\n{next_question_text}")
         return next_index
     else:
         # Complete registration
@@ -501,8 +587,10 @@ async def generate_horoscope(name: str, birthday: str, language: str, profession
         zodiac_sign = get_zodiac_sign(birthday)
     elif language == "EN":
         zodiac_sign = get_zodiac_sign_en(birthday)
-    else:  # RU
+    elif language == "RU":
         zodiac_sign = get_zodiac_sign_ru(birthday)
+    else:  # LV
+        zodiac_sign = get_zodiac_sign_lv(birthday)
     
     # Create optimized prompt based on language
     prompts = {
@@ -561,7 +649,26 @@ Start with today's energy and {zodiac_sign} sign influence, then move to persona
 - Звучит как разговор с другом, а не как чтение из книги
 - 4-6 предложений, естественно связанных
 
-Начни с энергии дня и влияния знака {zodiac_sign}, затем перейди к личному совету."""
+Начни с энергии дня и влияния знака {zodiac_sign}, затем перейди к личному совету.""",
+        
+        "LV": f"""Tu esi pieredzējis astrologs un psihologs, kurš raksta personīgus horoskopus. Šodien tu raksti horoskopu {name} ({sex}), dzimis {birthday}.
+
+Par {name}:
+- Zodiaka zīme: {zodiac_sign}
+- Strādā: {profession}
+- Mīl: {hobbies}
+
+Raksti dabisku, siltu horoskopu, kas:
+- Izklausās kā īsts astroloģisks padoms, ne kā AI ģenerēts teksts
+- Izmanto {name} personīgo informāciju dabiski, ne kā sarakstu
+- Iekļauj {zodiac_sign} zīmes īpašības un enerģiju
+- Sniedz konkrētus, praktiskus padomus, kas saistīti ar viņu dzīvi
+- Ir motivējošs, bet ne pārāk optimistisks
+- Ir ar mazliet mistikas un maģijas, bet paliek praktisks
+- Izklausās kā saruna ar draugu, ne kā lasīšana no grāmatas
+- 4-6 teikumi, dabiski savienoti
+
+Sāc ar šodienas enerģiju un {zodiac_sign} zīmes ietekmi, tad pārej uz personīgo padomu."""
     }
     
     prompt = prompts.get(language, prompts["LT"])
@@ -807,13 +914,12 @@ async def main():
     registration_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start_command)],
         states={
-            ASKING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
-            ASKING_BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_birthday)],
             ASKING_LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_language)],
+            ASKING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
+            ASKING_SEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_sex)],
+            ASKING_BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_birthday)],
             ASKING_PROFESSION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_profession)],
             ASKING_HOBBIES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_hobbies)],
-            ASKING_SEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_sex)],
-
         },
         fallbacks=[CommandHandler("cancel", cancel_registration)],
     )
