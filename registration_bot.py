@@ -114,7 +114,7 @@ def get_question_text(field: str, language: str = "LT") -> str:
         "EN": {
             "language": "🇱🇹 Type LT for Lithuanian\n🇬🇧 Type EN for English\n🇷🇺 Type RU for Russian\n🇱🇻 Type LV for Latvian",
             "name": "What is your name?",
-            "sex": "What is your gender? (woman/man)",
+            "sex": "What is your gender? (woman/man/female/male)",
             "birthday": "What is your birth date? (e.g.: 1979-05-04, 04.05.1979, 04/05/1979)",
             "profession": "What is your profession?",
             "hobbies": "What are your hobbies?"
@@ -122,7 +122,7 @@ def get_question_text(field: str, language: str = "LT") -> str:
         "RU": {
             "language": "🇱🇹 Напиши LT для литовского\n🇬🇧 Напиши EN для английского\n🇷🇺 Напиши RU для русского\n🇱🇻 Напиши LV для латышского",
             "name": "Как вас зовут?",
-            "sex": "Какой у вас пол? (женщина/мужчина)",
+            "sex": "Какой у вас пол? (женщина/мужчина/женский/мужской)",
             "birthday": "Какая у вас дата рождения? (например: 1979-05-04, 04.05.1979, 04/05/1979)",
             "profession": "Какая у вас профессия?",
             "hobbies": "Какие у вас хобби?"
@@ -130,7 +130,7 @@ def get_question_text(field: str, language: str = "LT") -> str:
         "LV": {
             "language": "🇱🇹 Raksti LT lietuviešu valodā\n🇬🇧 Raksti EN angļu valodā\n🇷🇺 Raksti RU krievu valodā\n🇱🇻 Raksti LV latviešu valodā",
             "name": "Kāds ir jūsu vārds?",
-            "sex": "Kāds ir jūsu dzimums? (sieviete/vīrietis)",
+            "sex": "Kāds ir jūsu dzimums? (sieviete/vīrietis/virietis)",
             "birthday": "Kāda ir jūsu dzimšanas datums? (piemēram: 1979-05-04, 04.05.1979, 04/05/1979)",
             "profession": "Kāda ir jūsu profesija?",
             "hobbies": "Kādi ir jūsu hobiji?"
@@ -461,6 +461,7 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
     
     # Move to next question or complete registration
     next_index = question_index + 1
+    logger.info(f"Question {question_index} completed for {chat_id}, moving to question {next_index}")
     if next_index <= ASKING_HOBBIES:
         # Define question mappings for next question
         question_mappings = {
@@ -495,6 +496,7 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
         return next_index
     else:
         # Complete registration
+        logger.info(f"All questions completed for {chat_id}, starting registration completion")
         return await complete_registration(update, context)
 
 async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -546,15 +548,19 @@ async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TY
         # Clear user data after successful registration
         context.user_data.clear()
         logger.info(f"Registration completed successfully for {chat_id}")
+        return ConversationHandler.END
         
     except Exception as e:
         logger.error(f"Error completing registration for {chat_id}: {e}")
         logger.error(f"User data that caused error: {context.user_data}")
+        logger.error(f"Exception type: {type(e).__name__}")
+        logger.error(f"Exception details: {str(e)}")
         
         # Get appropriate error message based on language
         user_language = context.user_data.get('language', 'LT')
         error_message = get_message_text("error_try_again", user_language) + " Naudok /reset ir pradėk iš naujo."
         await update.message.reply_text(error_message)
+        return ConversationHandler.END
 
 # Question handlers
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
