@@ -227,7 +227,7 @@ def initialize_database():
                     language TEXT NOT NULL CHECK (language IN ('LT', 'EN', 'RU', 'LV')),
                     profession TEXT,
                     hobbies TEXT,
-                    sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis', 'virietis')),
+                    sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras', 'woman', 'man', 'female', 'male', 'женщина', 'мужчина', 'женский', 'мужской', 'sieviete', 'vīrietis', 'virietis', 'sieviešu', 'vīriešu')),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_horoscope_date DATE,
                     is_active BOOLEAN DEFAULT 1
@@ -351,7 +351,16 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
         question_mappings = {
             ASKING_LANGUAGE: ("language", lambda x: x.strip().upper() in ['LT', 'EN', 'RU', 'LV']),
             ASKING_NAME: ("name", lambda x: len(x.strip()) >= 2),
-            ASKING_SEX: ("sex", lambda x: x.strip().lower() in ['moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis', 'virietis']),
+            ASKING_SEX: ("sex", lambda x: x.strip().lower() in [
+                # Lithuanian
+                'moteris', 'vyras',
+                # English
+                'woman', 'man', 'female', 'male',
+                # Russian
+                'женщина', 'мужчина', 'женский', 'мужской',
+                # Latvian
+                'sieviete', 'vīrietis', 'virietis', 'sieviešu', 'vīriešu'
+            ]),
             ASKING_BIRTHDAY: ("birthday", lambda x: _validate_date(x)),
             ASKING_PROFESSION: ("profession", lambda x: len(x.strip()) >= 2),
             ASKING_HOBBIES: ("hobbies", lambda x: len(x.strip()) >= 2 and len(x.strip()) <= 500),
@@ -412,7 +421,16 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
         question_mappings = {
             ASKING_LANGUAGE: ("language", lambda x: x.strip().upper() in ['LT', 'EN', 'RU', 'LV']),
             ASKING_NAME: ("name", lambda x: len(x.strip()) >= 2),
-            ASKING_SEX: ("sex", lambda x: x.strip().lower() in ['moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis', 'virietis']),
+            ASKING_SEX: ("sex", lambda x: x.strip().lower() in [
+                # Lithuanian
+                'moteris', 'vyras',
+                # English
+                'woman', 'man', 'female', 'male',
+                # Russian
+                'женщина', 'мужчина', 'женский', 'мужской',
+                # Latvian
+                'sieviete', 'vīrietis', 'virietis', 'sieviešu', 'vīriešu'
+            ]),
             ASKING_BIRTHDAY: ("birthday", lambda x: _validate_date(x)),
             ASKING_PROFESSION: ("profession", lambda x: len(x.strip()) >= 2),
             ASKING_HOBBIES: ("hobbies", lambda x: len(x.strip()) >= 2 and len(x.strip()) <= 500),
