@@ -355,59 +355,59 @@ async def generate_horoscope(name: str, birthday: str, language: str, profession
     """Generate personalized horoscope using OpenAI with caching."""
     # Create optimized prompt based on language
     prompts = {
-        "LT": f"""Sukurk asmeninį dienos horoskopą {name} ({sex}), gimusiam {birthday}.
+        "LT": f"""Tu esi patyręs astrologas ir psichologas, kuris rašo asmeniškus horoskopus. Šiandien rašai horoskopą {name} ({sex}), gimusiam {birthday}.
 
-Asmeninė informacija:
-- Profesija: {profession}
-- Pomėgiai: {hobbies}
-- Interesai: {interests}
+Apie {name}:
+- Dirba: {profession}
+- Mėgsta: {hobbies}
+- Domisi: {interests}
 
-Horoskopo reikalavimai:
-- Analizuok asmeninę informaciją ir sukurk logišką, asmenišką pranešimą
-- Būk motyvuojantis, bet realistiškas
-- Pateik praktišką patarimą, susijusį su jų gyvenimo situacija
-- Naudok psichologinį supratimą apie žmogų
-- Pridėk šiek tiek humoro, bet išlaikyk profesionalumą
-- Būk originalus ir šviežias - nepasikartok
-- 4-5 sakiniai, gerai suformuluoti
+Rašyk natūralų, šiltą horoskopą, kuris:
+- Skamba kaip tikras astrologo patarimas, ne kaip AI generuotas tekstas
+- Naudoja {name} asmeninę informaciją natūraliai, ne kaip sąrašą
+- Pateikia konkrečius, praktiškus patarimus, susijusius su jų gyvenimu
+- Yra motyvuojantis, bet ne per optimistiškas
+- Turi šiek tiek mistikos ir magijos, bet išlieka praktiškas
+- Skamba kaip kalbėtum su draugu, ne kaip skaitytum iš knygos
+- 4-6 sakiniai, natūraliai sujungti
 
-Sukurk horoskopą, kuris atitiktų šio žmogaus asmenybę ir gyvenimo situaciją.""",
+Pradėk nuo šiandienos energijos, tada pereik prie asmeninio patarimo.""",
         
-        "EN": f"""Create a personalized daily horoscope for {name} ({sex}), born on {birthday}.
+        "EN": f"""You are an experienced astrologer and psychologist writing a personal horoscope. Today you're writing for {name} ({sex}), born on {birthday}.
 
-Personal information:
-- Profession: {profession}
-- Hobbies: {hobbies}
-- Interests: {interests}
+About {name}:
+- Works as: {profession}
+- Enjoys: {hobbies}
+- Interested in: {interests}
 
-Horoscope requirements:
-- Analyze the personal information and create a logical, personalized message
-- Be motivating but realistic
-- Provide practical advice related to their life situation
-- Use psychological understanding about the person
-- Add some humor while maintaining professionalism
-- Be original and fresh - don't repeat
-- 4-5 well-formulated sentences
+Write a natural, warm horoscope that:
+- Sounds like genuine astrological advice, not AI-generated text
+- Uses {name}'s personal information naturally, not as a checklist
+- Provides specific, practical advice related to their life
+- Is motivating but not overly optimistic
+- Has a touch of mysticism and magic, but stays practical
+- Sounds like you're talking to a friend, not reading from a book
+- 4-6 sentences, naturally connected
 
-Create a horoscope that matches this person's personality and life situation.""",
+Start with today's energy, then move to personal advice.""",
         
-        "RU": f"""Создай персональный дневной гороскоп для {name} ({sex}), родившегося {birthday}.
+        "RU": f"""Ты опытный астролог и психолог, пишущий личные гороскопы. Сегодня ты пишешь гороскоп для {name} ({sex}), родившегося {birthday}.
 
-Личная информация:
-- Профессия: {profession}
-- Хобби: {hobbies}
-- Интересы: {interests}
+О {name}:
+- Работает: {profession}
+- Увлекается: {hobbies}
+- Интересуется: {interests}
 
-Требования к гороскопу:
-- Проанализируй личную информацию и создай логичное, персональное сообщение
-- Будь мотивирующим, но реалистичным
-- Дай практический совет, связанный с их жизненной ситуацией
-- Используй психологическое понимание о человеке
-- Добавь немного юмора, сохраняя профессионализм
-- Будь оригинальным и свежим - не повторяйся
-- 4-5 хорошо сформулированных предложений
+Напиши естественный, тёплый гороскоп, который:
+- Звучит как настоящий астрологический совет, а не как ИИ-генерированный текст
+- Использует личную информацию {name} естественно, а не как список
+- Даёт конкретные, практические советы, связанные с их жизнью
+- Мотивирует, но не слишком оптимистичен
+- Имеет немного мистики и магии, но остаётся практичным
+- Звучит как разговор с другом, а не как чтение из книги
+- 4-6 предложений, естественно связанных
 
-Создай гороскоп, который соответствует личности и жизненной ситуации этого человека."""
+Начни с энергии дня, затем перейди к личному совету."""
     }
     
     prompt = prompts.get(language, prompts["LT"])
