@@ -102,6 +102,8 @@ LOG_LEVEL=INFO            # Logging level
    python start_horoscope_bot.py
    ```
 
+**Note**: The old `main.py` file has been removed as it's no longer needed with the separated architecture.
+
 ## 🗄️ Database Schema
 
 The bots share a SQLite database with the following schema:
