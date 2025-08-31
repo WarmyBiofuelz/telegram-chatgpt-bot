@@ -54,12 +54,51 @@ user_last_message = {}
 user_states = {}
 
 def _validate_date(date_str: str) -> bool:
-    """Validate date format."""
-    try:
-        datetime.strptime(date_str.strip(), "%Y-%m-%d")
-        return True
-    except ValueError:
-        return False
+    """Validate date format - accepts multiple formats."""
+    date_str = date_str.strip()
+    
+    # Try different date formats
+    formats = [
+        "%Y-%m-%d",      # 1979-05-04
+        "%d.%m.%Y",      # 04.05.1979
+        "%d/%m/%Y",      # 04/05/1979
+        "%m/%d/%Y",      # 05/04/1979
+        "%d-%m-%Y",      # 04-05-1979
+        "%Y.%m.%d",      # 1979.05.04
+    ]
+    
+    for fmt in formats:
+        try:
+            datetime.strptime(date_str, fmt)
+            return True
+        except ValueError:
+            continue
+    
+    return False
+
+def _normalize_date(date_str: str) -> str:
+    """Normalize date to YYYY-MM-DD format."""
+    date_str = date_str.strip()
+    
+    # Try different date formats and convert to YYYY-MM-DD
+    formats = [
+        ("%Y-%m-%d", "%Y-%m-%d"),      # Already in correct format
+        ("%d.%m.%Y", "%Y-%m-%d"),      # 04.05.1979 -> 1979-05-04
+        ("%d/%m/%Y", "%Y-%m-%d"),      # 04/05/1979 -> 1979-05-04
+        ("%m/%d/%Y", "%Y-%m-%d"),      # 05/04/1979 -> 1979-05-04
+        ("%d-%m-%Y", "%Y-%m-%d"),      # 04-05-1979 -> 1979-05-04
+        ("%Y.%m.%d", "%Y-%m-%d"),      # 1979.05.04 -> 1979-05-04
+    ]
+    
+    for input_fmt, output_fmt in formats:
+        try:
+            date_obj = datetime.strptime(date_str, input_fmt)
+            return date_obj.strftime(output_fmt)
+        except ValueError:
+            continue
+    
+    # If no format matches, return original (should not happen if validation passed)
+    return date_str
 
 def get_question_text(field: str, language: str = "LT") -> str:
     """Get question text in the appropriate language."""
@@ -68,7 +107,7 @@ def get_question_text(field: str, language: str = "LT") -> str:
             "language": "🇱🇹 Rašyk LT lietuviškai\n🇬🇧 Type EN for English\n🇷🇺 Напиши RU по-русски\n🇱🇻 Raksti LV latviešu valodā",
             "name": "Koks tavo vardas?",
             "sex": "Kokia tavo lytis? (moteris/vyras)",
-            "birthday": "Kokia tavo gimimo data? (pvz.: 1979-05-04)",
+            "birthday": "Kokia tavo gimimo data? (pvz.: 1979-05-04, 04.05.1979, 04/05/1979)",
             "profession": "Kokia tavo profesija?",
             "hobbies": "Kokie tavo pomėgiai?"
         },
@@ -76,7 +115,7 @@ def get_question_text(field: str, language: str = "LT") -> str:
             "language": "🇱🇹 Type LT for Lithuanian\n🇬🇧 Type EN for English\n🇷🇺 Type RU for Russian\n🇱🇻 Type LV for Latvian",
             "name": "What is your name?",
             "sex": "What is your gender? (woman/man)",
-            "birthday": "What is your birth date? (e.g.: 1979-05-04)",
+            "birthday": "What is your birth date? (e.g.: 1979-05-04, 04.05.1979, 04/05/1979)",
             "profession": "What is your profession?",
             "hobbies": "What are your hobbies?"
         },
@@ -84,7 +123,7 @@ def get_question_text(field: str, language: str = "LT") -> str:
             "language": "🇱🇹 Напиши LT для литовского\n🇬🇧 Напиши EN для английского\n🇷🇺 Напиши RU для русского\n🇱🇻 Напиши LV для латышского",
             "name": "Как вас зовут?",
             "sex": "Какой у вас пол? (женщина/мужчина)",
-            "birthday": "Какая у вас дата рождения? (например: 1979-05-04)",
+            "birthday": "Какая у вас дата рождения? (например: 1979-05-04, 04.05.1979, 04/05/1979)",
             "profession": "Какая у вас профессия?",
             "hobbies": "Какие у вас хобби?"
         },
@@ -92,7 +131,7 @@ def get_question_text(field: str, language: str = "LT") -> str:
             "language": "🇱🇹 Raksti LT lietuviešu valodā\n🇬🇧 Raksti EN angļu valodā\n🇷🇺 Raksti RU krievu valodā\n🇱🇻 Raksti LV latviešu valodā",
             "name": "Kāds ir jūsu vārds?",
             "sex": "Kāds ir jūsu dzimums? (sieviete/vīrietis)",
-            "birthday": "Kāda ir jūsu dzimšanas datums? (piemēram: 1979-05-04)",
+            "birthday": "Kāda ir jūsu dzimšanas datums? (piemēram: 1979-05-04, 04.05.1979, 04/05/1979)",
             "profession": "Kāda ir jūsu profesija?",
             "hobbies": "Kādi ir jūsu hobiji?"
         }
@@ -409,8 +448,14 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
         context.user_data[field_name] = user_input
         logger.info(f"Stored {field_name} for {chat_id}: {user_input[:50]}...")  # Log first 50 chars
     
+    elif field_name == "birthday":
+        # Normalize date to YYYY-MM-DD format
+        normalized_date = _normalize_date(user_input)
+        context.user_data[field_name] = normalized_date
+        logger.info(f"Stored {field_name} for {chat_id}: {normalized_date}")
+    
     else:
-        # For other fields (birthday)
+        # For other fields
         context.user_data[field_name] = user_input
         logger.info(f"Stored {field_name} for {chat_id}: {user_input}")
     
