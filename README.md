@@ -1,17 +1,53 @@
-# Personal Horoscope Bot 🌟
+# Horoscope Bot - Separated Architecture 🌟
 
-A personalized Telegram bot that generates daily horoscopes using OpenAI's GPT-4, featuring user registration, multilingual support, and automated daily delivery.
+A multilingual Telegram bot system that provides personalized horoscopes using OpenAI's GPT-4o model. The system is now split into two focused bots for better maintainability and scalability.
+
+## 🏗️ Architecture
+
+The bot system consists of two separate components:
+
+### 1. Registration Bot (`registration_bot.py`)
+- **Purpose**: Handles user registration and database management
+- **Features**: User onboarding, data collection, profile management
+- **Commands**: `/start`, `/reset`, `/help`
+
+### 2. Horoscope Bot (`horoscope_bot.py`)
+- **Purpose**: Generates and sends horoscopes from database data
+- **Features**: Horoscope generation, daily delivery, profile viewing
+- **Commands**: `/horoscope`, `/profile`, `/help`
 
 ## 🚀 Features
 
 - **🌟 Personalized Horoscopes**: AI-generated horoscopes based on user profile
 - **📝 User Registration**: Interactive questionnaire to create personal profiles
-- **🌍 Multilingual Support**: Lithuanian (LT), English (EN), and Russian (RU)
+- **🌍 Multilingual Support**: Lithuanian (LT), English (EN), Russian (RU), Latvian (LV)
 - **📅 Daily Automation**: Automatic horoscope delivery every morning at 07:30
 - **💾 User Profiles**: SQLite database to store user information
-- **🎯 GPT-4 Powered**: High-quality, personalized horoscope generation
-- **🔄 Smart Fallback**: Automatic fallback to GPT-3.5-turbo if needed
-- **⚡ Modern Architecture**: Built with python-telegram-bot and async/await
+- **🎯 GPT-4o Powered**: High-quality, personalized horoscope generation
+- **♈ Zodiac Integration**: Automatic zodiac sign calculation and integration
+- **⚡ Separated Architecture**: Independent bots for better maintainability
+- **🔄 Rate Limiting**: Prevents spam and abuse
+
+## 📊 Commands
+
+### Registration Bot
+- `/start` - Start registration process
+- `/reset` - Reset your data and re-register
+- `/help` - Show help information
+
+### Horoscope Bot
+- `/horoscope` - Get today's horoscope
+- `/profile` - View your profile
+- `/help` - Show help information
+
+## 🎯 Registration Process
+
+1. **Language Selection** - Choose your preferred language (LT/EN/RU/LV)
+2. **Name** - Enter your name
+3. **Gender** - Select your gender (woman/man, moteris/vyras, etc.)
+4. **Birthday** - Enter your birth date (YYYY-MM-DD format)
+5. **Profession** - Enter your profession
+6. **Hobbies** - Enter your hobbies
 
 ## ⚙️ Configuration
 
@@ -23,97 +59,19 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
 OPENAI_API_KEY=your_openai_api_key_here
 
 # OpenAI Model Configuration (Optional - defaults shown)
-OPENAI_MODEL=gpt-4                    # Primary model (GPT-4)
-OPENAI_MODEL_FALLBACK=gpt-3.5-turbo  # Fallback model if GPT-4 fails
+OPENAI_MODEL=gpt-4o-2024-05-13    # Primary model (GPT-4o)
 
 # Optional Performance Settings (defaults shown)
 RATE_LIMIT_SECONDS=2      # Minimum seconds between messages per user
 MAX_RETRIES=3             # Maximum API retry attempts
 RETRY_DELAY=1             # Delay between retries in seconds
 OPENAI_TIMEOUT=30         # API timeout in seconds
-MAX_TOKENS=1000           # Maximum response tokens (increased for GPT-4)
+MAX_TOKENS=1000           # Maximum response tokens
 TEMPERATURE=0.7           # AI response creativity (0.0-1.0)
+LOG_LEVEL=INFO            # Logging level
 ```
 
-## 📊 Commands
-
-- `/start` - Begin user registration process
-- `/horoscope` - Get today's personalized horoscope
-- `/profile` - View your profile information
-- `/help` - Show help information
-- `/cancel` - Cancel current registration process
-
-## 🎯 How It Works
-
-### User Registration Flow:
-1. **Start Registration**: User sends `/start`
-2. **Profile Creation**: Bot asks 7 questions:
-   - Name
-   - Birthday (YYYY-MM-DD format)
-   - Preferred language (LT/EN/RU)
-   - Profession
-   - Hobbies
-   - Gender (moteris/vyras)
-   - Main interests
-3. **Profile Storage**: Data saved to SQLite database
-4. **Confirmation**: User receives confirmation and available commands
-
-### Daily Horoscope Generation:
-1. **Scheduled Delivery**: Every day at 07:30 AM
-2. **User Retrieval**: Bot fetches all registered users
-3. **Personalized Generation**: GPT-4 creates unique horoscope for each user
-4. **Language-Specific**: Horoscopes generated in user's preferred language
-5. **Automatic Sending**: Horoscopes delivered to all users
-
-### Horoscope Features:
-- **Personalized Content**: Based on user's profile data
-- **Motivational Tone**: Positive and uplifting messages
-- **Practical Advice**: Actionable recommendations
-- **Fresh Content**: Never repetitive, always unique
-- **Appropriate Length**: 3-4 sentences for optimal reading
-
-## 🗄️ Database Schema
-
-The bot uses SQLite with the following user table:
-
-```sql
-CREATE TABLE users (
-    chat_id INTEGER PRIMARY KEY,
-    name TEXT,
-    birthday TEXT,
-    language TEXT,
-    profession TEXT,
-    hobbies TEXT,
-    sex TEXT,
-    interests TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_horoscope_date DATE
-)
-```
-
-## 🔧 Technical Features
-
-### Architecture:
-- **Async/Await**: Modern Python async programming
-- **Conversation Handler**: Multi-step user registration
-- **Database Integration**: SQLite for user data persistence
-- **Scheduling**: Background thread for daily horoscope delivery
-- **Error Handling**: Comprehensive error management and logging
-
-### Performance:
-- **Rate Limiting**: Prevents spam and abuse
-- **Retry Logic**: Automatic retry on API failures
-- **Model Fallback**: GPT-3.5-turbo backup when GPT-4 fails
-- **Efficient Database**: Optimized SQLite queries
-- **Background Processing**: Non-blocking scheduler
-
-### Security:
-- **Input Validation**: Date format and option validation
-- **SQL Injection Protection**: Parameterized queries
-- **Error Sanitization**: Safe error messages
-- **Rate Limiting**: Protection against abuse
-
-## 🚀 Running the Bot
+## 🚀 Running the Bots
 
 1. **Install Dependencies**:
    ```bash
@@ -123,61 +81,151 @@ CREATE TABLE users (
 2. **Set Up Environment**:
    Create `.env` file with your API keys
 
-3. **Run the Bot**:
+3. **Run the Bots**:
+
+   **Option 1: Run Registration Bot Only**
    ```bash
-   python main.py
+   python start_registration_bot.py
    ```
 
-4. **Test Registration**:
-   - Send `/start` to your bot
-   - Complete the registration process
-   - Test `/horoscope` command
+   **Option 2: Run Horoscope Bot Only**
+   ```bash
+   python start_horoscope_bot.py
+   ```
+
+   **Option 3: Run Both Bots (Separate Terminals)**
+   ```bash
+   # Terminal 1
+   python start_registration_bot.py
+
+   # Terminal 2
+   python start_horoscope_bot.py
+   ```
+
+## 🗄️ Database Schema
+
+The bots share a SQLite database with the following schema:
+
+```sql
+CREATE TABLE users (
+    chat_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    birthday TEXT NOT NULL,
+    language TEXT NOT NULL CHECK (language IN ('LT', 'EN', 'RU', 'LV')),
+    profession TEXT,
+    hobbies TEXT,
+    sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_horoscope_date DATE,
+    is_active BOOLEAN DEFAULT 1
+);
+```
+
+## 🎯 How It Works
+
+### User Registration Flow:
+1. **Start Registration**: User sends `/start` to Registration Bot
+2. **Profile Creation**: Bot asks 6 questions in user's selected language
+3. **Profile Storage**: Data saved to shared SQLite database
+4. **Confirmation**: User receives confirmation and available commands
+
+### Daily Horoscope Generation:
+1. **Scheduled Delivery**: Horoscope Bot runs daily at 07:30 AM
+2. **User Retrieval**: Bot fetches all registered users from database
+3. **Personalized Generation**: GPT-4o creates unique horoscope for each user
+4. **Zodiac Integration**: Automatic zodiac sign calculation and integration
+5. **Language-Specific**: Horoscopes generated in user's preferred language
+6. **Automatic Sending**: Horoscopes delivered to all users
+
+### Horoscope Features:
+- **Personalized Content**: Based on user's profile data and zodiac sign
+- **Psychological Insights**: Deep understanding of user's personality
+- **Practical Advice**: Actionable recommendations
+- **Fresh Content**: Never repetitive, always unique
+- **Optimal Length**: 4-5 sentences for comprehensive guidance
+
+## 🔧 Technical Features
+
+### Architecture:
+- **Separated Bots**: Independent bots for registration and horoscope delivery
+- **Async/Await**: Modern Python async programming
+- **Conversation Handler**: Multi-step user registration
+- **Database Integration**: Shared SQLite for user data persistence
+- **Scheduling**: Background thread for daily horoscope delivery
+- **Error Handling**: Comprehensive error management and logging
+
+### Performance:
+- **Rate Limiting**: Prevents spam and abuse
+- **Retry Logic**: Automatic retry on API failures
+- **Efficient Database**: Optimized SQLite queries with WAL mode
+- **Background Processing**: Non-blocking scheduler
+- **Connection Pooling**: Optimized database connections
+
+### Security:
+- **Input Validation**: Comprehensive validation for all fields
+- **SQL Injection Protection**: Parameterized queries
+- **Error Sanitization**: Safe error messages
+- **Rate Limiting**: Protection against abuse
+- **Data Sanitization**: Input cleaning and length limits
+
+## 💡 Benefits of Separated Architecture
+
+- **Better Maintainability**: Each bot has a single responsibility
+- **Independent Scaling**: Can scale each bot independently
+- **Easier Debugging**: Issues are isolated to specific functionality
+- **Flexible Deployment**: Can deploy bots on different servers
+- **Resource Optimization**: Each bot only loads what it needs
+- **Fault Tolerance**: One bot failure doesn't affect the other
 
 ## 📈 Usage Examples
 
 ### Registration Process:
 ```
 User: /start
-Bot: Labas! Aš esu tavo asmeninis horoskopų botukas 🌟
-     Atsakyk į kelis klausimus, kad galėčiau pritaikyti horoskopą būtent tau.
-     Pradėkime nuo tavo vardo:
+Bot: 🇱🇹 Rašyk LT lietuviškai
+     🇬🇧 Type EN for English
+     🇷🇺 Напиши RU по-русски
+     🇱🇻 Raksti LV latviešu valodā
 
-User: Jonas
-Bot: Puiku, Jonas! 🌟
-     Dabar pasakyk savo gimimo datą (formatas: YYYY-MM-DD):
+User: EN
+Bot: Hello! I'm your personal horoscope bot 🌟
+     Answer a few questions so I can personalize your horoscope.
+     
+     Great! 🌟
+     What is your name?
 
-User: 1990-05-15
-Bot: Puiku! 📅
-     Kokia kalba nori gauti horoskopą?
-     • LT - Lietuvių kalba
-     • EN - English
-     • RU - Русский
+User: John
+Bot: Great! 🌟
+     What is your gender? (woman/man)
 ```
 
 ### Horoscope Generation:
 ```
 User: /horoscope
-Bot: Generuoju tavo asmeninį horoskopą... ✨
+Bot: 🔮 Generating your personal horoscope...
 
-Bot: 🌟 **Jonas, šiandien tau laukia puikių galimybių!** 
-     Tavo profesinis patirimas ir kūrybiškumas bus ypač vertinami. 
-     Neišsigąsk imtis naujų iššūkių - jie atneš ne tik sėkmę, 
-     bet ir asmeninį pasitenkinimą. Šiandien ypač tinkamas laikas 
-     planuoti keliones ar domėtis naujais pomėgiais! ✨
+Bot: 🌟 **John's horoscope for today:**
+     Today brings excellent opportunities for professional growth, John. 
+     Your creative energy is particularly strong, making it an ideal time 
+     to pursue new projects or share innovative ideas. The stars suggest 
+     that your communication skills will be especially effective today, 
+     so don't hesitate to reach out to colleagues or present your thoughts. 
+     Trust your intuition when making decisions, as it's aligned with 
+     your Aries nature and will guide you toward success.
 ```
 
 ## 💰 Cost Considerations
 
-### GPT-4 Pricing:
-- **Input**: $0.03 per 1K tokens
-- **Output**: $0.06 per 1K tokens
-- **Daily Cost**: ~$0.10-0.50 per 100 users (depending on horoscope length)
+### GPT-4o Pricing:
+- **Input**: $0.005 per 1K tokens
+- **Output**: $0.015 per 1K tokens
+- **Daily Cost**: ~$0.05-0.20 per 100 users (depending on horoscope length)
 
 ### Cost Optimization:
-- **Smart Fallback**: Automatic switch to GPT-3.5-turbo when needed
 - **Token Limits**: Configurable response length
 - **Efficient Prompts**: Optimized for minimal token usage
 - **Daily Limits**: One horoscope per user per day
+- **Smart Caching**: Reduced redundant API calls
 
 ## 🎯 Use Cases
 
@@ -187,29 +235,39 @@ Bot: 🌟 **Jonas, šiandien tau laukia puikių galimybių!**
 - **Language Learning**: Multilingual content delivery
 - **Community Building**: Engaging user interaction
 - **Content Creation**: Automated personalized content
+- **Scalable Services**: Handle growing user bases efficiently
 
 ### Target Audience:
 - **Horoscope Enthusiasts**: People who enjoy daily horoscopes
-- **Multilingual Users**: Lithuanian, English, and Russian speakers
+- **Multilingual Users**: Lithuanian, English, Russian, and Latvian speakers
 - **Wellness Seekers**: Those looking for daily motivation
 - **Tech-Savvy Users**: Comfortable with Telegram bots
 
 ## 🔮 Future Enhancements
 
 ### Planned Features:
-- **Zodiac Sign Integration**: Astrological calculations
 - **Weekly/Monthly Horoscopes**: Extended time periods
 - **Custom Timing**: User-defined delivery times
 - **Horoscope History**: Past horoscope access
 - **Social Features**: Share horoscopes with friends
 - **Premium Features**: Advanced personalization
+- **Web Dashboard**: Admin panel for user management
 
 ### Technical Improvements:
-- **Web Dashboard**: Admin panel for user management
 - **Analytics**: User engagement tracking
 - **A/B Testing**: Horoscope style optimization
 - **Caching**: Improved performance
-- **Scalability**: Support for larger user bases
+- **Microservices**: Further architecture separation
+- **API Gateway**: Centralized bot management
+
+## 🔄 Migration from Single Bot
+
+If you're migrating from the single `main.py` bot:
+
+1. **Stop the old bot**
+2. **The database schema is automatically migrated**
+3. **Start the new separated bots**
+4. **All existing user data is preserved**
 
 ## 📝 License
 

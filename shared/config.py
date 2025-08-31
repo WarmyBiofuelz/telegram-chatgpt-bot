@@ -9,7 +9,7 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 # Bot Settings
 BOT_NAME = "Horoscope Bot"
-BOT_VERSION = "1.0.0"
+BOT_VERSION = "2.0.0"  # Updated for separated architecture
 
 # OpenAI Model Configuration
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-2024-05-13')  # Default to GPT-4o (best quality)
@@ -19,9 +19,11 @@ RATE_LIMIT_SECONDS = int(os.getenv('RATE_LIMIT_SECONDS', '2'))
 MAX_RETRIES = int(os.getenv('MAX_RETRIES', '3'))
 RETRY_DELAY = int(os.getenv('RETRY_DELAY', '1'))
 OPENAI_TIMEOUT = int(os.getenv('OPENAI_TIMEOUT', '30'))
+
+# Additional Configuration
 MAX_TOKENS = int(os.getenv('MAX_TOKENS', '1000'))  # Increased for GPT-4
 TEMPERATURE = float(os.getenv('TEMPERATURE', '0.7'))
 
 # Logging Configuration
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-LOG_LEVEL = 'INFO' 
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO') 
