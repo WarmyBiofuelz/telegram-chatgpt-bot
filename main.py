@@ -101,28 +101,32 @@ def get_message_text(message_type: str, language: str = "LT") -> str:
     """Get message text in the specified language."""
     messages = {
         "LT": {
-            "welcome": "Labas! Aš esu horoskopų botas. Pradėkime registraciją!",
+            "welcome": "Labas! Aš esu tavo asmeninis horoskopų botukas 🌟",
+            "continue": "Atsakyk į kelis klausimus, kad galėčiau pritaikyti horoskopą būtent tau.",
             "great": "Puiku!",
             "registration_complete": "Registracija baigta! Dabar gali gauti horoskopus.",
             "error_try_again": "Atsiprašau, įvyko klaida. Bandyk dar kartą.",
             "rate_limited": "Palaukite {seconds} sekundės prieš siųsdami kitą žinutę."
         },
         "EN": {
-            "welcome": "Hello! I'm a horoscope bot. Let's start registration!",
+            "welcome": "Hello! I'm your personal horoscope bot 🌟",
+            "continue": "Answer a few questions so I can personalize your horoscope.",
             "great": "Great!",
             "registration_complete": "Registration completed! Now you can receive horoscopes.",
             "error_try_again": "Sorry, an error occurred. Please try again.",
             "rate_limited": "Please wait {seconds} seconds before sending another message."
         },
         "RU": {
-            "welcome": "Привет! Я бот-гороскоп. Давайте начнем регистрацию!",
+            "welcome": "Привет! Я твой личный бот-гороскоп 🌟",
+            "continue": "Ответь на несколько вопросов, чтобы я мог составить персональный гороскоп для тебя.",
             "great": "Отлично!",
             "registration_complete": "Регистрация завершена! Теперь вы можете получать гороскопы.",
             "error_try_again": "Извините, произошла ошибка. Попробуйте еще раз.",
             "rate_limited": "Пожалуйста, подождите {seconds} секунд перед отправкой следующего сообщения."
         },
         "LV": {
-            "welcome": "Sveiki! Esmu horoskopu bots. Sāksim reģistrāciju!",
+            "welcome": "Sveiki! Esmu tavs personīgais horoskopu bots 🌟",
+            "continue": "Atbildi uz dažiem jautājumiem, lai es varētu personalizēt tavu horoskopu.",
             "great": "Lieliski!",
             "registration_complete": "Reģistrācija pabeigta! Tagad varat saņemt horoskopus.",
             "error_try_again": "Atvainojiet, radās kļūda. Lūdzu, mēģiniet vēlreiz.",
@@ -483,14 +487,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     logger.info(f"Starting registration for new user chat_id: {chat_id}")
     try:
-        # Welcome message in Lithuanian (default language for new users)
-        await update.message.reply_text(
-            "Labas! Aš esu tavo asmeninis horoskopų botukas 🌟\n\n"
-            "Atsakyk į kelis klausimus, kad galėčiau pritaikyti horoskopą būtent tau.\n\n"
-            "Pradėkime nuo kalbos pasirinkimo:"
-        )
+        # Start with language selection (in Lithuanian as default)
         await update.message.reply_text(get_question_text("language", "LT"))
-        logger.info(f"Registration message sent to chat_id: {chat_id}, returning ASKING_LANGUAGE")
+        logger.info(f"Language selection message sent to chat_id: {chat_id}, returning ASKING_LANGUAGE")
         return ASKING_LANGUAGE
     except Exception as e:
         logger.error(f"Error sending registration message to {chat_id}: {e}")
@@ -529,15 +528,37 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
     # Store the validated input with sanitization
     if field_name == "language":
         user_input = user_input.upper()
+        # Store language and send welcome message in selected language
+        context.user_data[field_name] = user_input
+        logger.info(f"Stored {field_name} for {chat_id}: {user_input}")
+        
+        # Send welcome message in selected language
+        welcome_message = get_message_text("welcome", user_input)
+        continue_message = get_message_text("continue", user_input)
+        await update.message.reply_text(f"{welcome_message}\n\n{continue_message}")
+        
     elif field_name == "sex":
         user_input = user_input.lower()
+        context.user_data[field_name] = user_input
+        logger.info(f"Stored {field_name} for {chat_id}: {user_input}")
+        
     elif field_name in ["name", "profession", "hobbies"]:
         # Sanitize text input - remove excessive whitespace and limit length
         user_input = " ".join(user_input.split())  # Remove extra whitespace
-        user_input = user_input[:500]  # Limit to 500 characters
+        if field_name == "hobbies":
+            user_input = user_input[:500]  # Limit hobbies to 500 characters
+        elif field_name == "name":
+            user_input = user_input[:100]  # Limit name to 100 characters
+        elif field_name == "profession":
+            user_input = user_input[:200]  # Limit profession to 200 characters
+        
+        context.user_data[field_name] = user_input
+        logger.info(f"Stored {field_name} for {chat_id}: {user_input[:50]}...")  # Log first 50 chars
     
-    context.user_data[field_name] = user_input
-    logger.info(f"Stored {field_name} for {chat_id}: {user_input[:50]}...")  # Log first 50 chars
+    else:
+        # For other fields (birthday)
+        context.user_data[field_name] = user_input
+        logger.info(f"Stored {field_name} for {chat_id}: {user_input}")
     
     # Move to next question or complete registration
     next_index = question_index + 1
