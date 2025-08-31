@@ -63,7 +63,7 @@ def get_question_text(field: str, language: str = "LT") -> str:
     """Get question text in the appropriate language."""
     questions = {
         "LT": {
-            "language": "Kokia kalba nori gauti horoskopą?\n\n🇱🇹 Rašyk LT lietuviškai\n🇬🇧 Type EN for English\n🇷🇺 Напиши RU по-русски\n🇱🇻 Raksti LV latviešu valodā",
+            "language": "🇱🇹 Rašyk LT lietuviškai\n🇬🇧 Type EN for English\n🇷🇺 Напиши RU по-русски\n🇱🇻 Raksti LV latviešu valodā",
             "name": "Koks tavo vardas?",
             "sex": "Kokia tavo lytis? (moteris/vyras)",
             "birthday": "Kokia tavo gimimo data? (pvz.: 1979-05-04)",
@@ -71,7 +71,7 @@ def get_question_text(field: str, language: str = "LT") -> str:
             "hobbies": "Kokie tavo pomėgiai?"
         },
         "EN": {
-            "language": "What language do you want to receive horoscopes in?\n\n🇱🇹 Type LT for Lithuanian\n🇬🇧 Type EN for English\n🇷🇺 Type RU for Russian\n🇱🇻 Type LV for Latvian",
+            "language": "🇱🇹 Type LT for Lithuanian\n🇬🇧 Type EN for English\n🇷🇺 Type RU for Russian\n🇱🇻 Type LV for Latvian",
             "name": "What is your name?",
             "sex": "What is your gender? (woman/man)",
             "birthday": "What is your birth date? (e.g.: 1979-05-04)",
@@ -79,7 +79,7 @@ def get_question_text(field: str, language: str = "LT") -> str:
             "hobbies": "What are your hobbies?"
         },
         "RU": {
-            "language": "На каком языке вы хотите получать гороскопы?\n\n🇱🇹 Напиши LT для литовского\n🇬🇧 Напиши EN для английского\n🇷🇺 Напиши RU для русского\n🇱🇻 Напиши LV для латышского",
+            "language": "🇱🇹 Напиши LT для литовского\n🇬🇧 Напиши EN для английского\n🇷🇺 Напиши RU для русского\n🇱🇻 Напиши LV для латышского",
             "name": "Как вас зовут?",
             "sex": "Какой у вас пол? (женщина/мужчина)",
             "birthday": "Какая у вас дата рождения? (например: 1979-05-04)",
@@ -87,7 +87,7 @@ def get_question_text(field: str, language: str = "LT") -> str:
             "hobbies": "Какие у вас хобби?"
         },
         "LV": {
-            "language": "Kādā valodā vēlaties saņemt horoskopus?\n\n🇱🇹 Raksti LT lietuviešu valodā\n🇬🇧 Raksti EN angļu valodā\n🇷🇺 Raksti RU krievu valodā\n🇱🇻 Raksti LV latviešu valodā",
+            "language": "🇱🇹 Raksti LT lietuviešu valodā\n🇬🇧 Raksti EN angļu valodā\n🇷🇺 Raksti RU krievu valodā\n🇱🇻 Raksti LV latviešu valodā",
             "name": "Kāds ir jūsu vārds?",
             "sex": "Kāds ir jūsu dzimums? (sieviete/vīrietis)",
             "birthday": "Kāda ir jūsu dzimšanas datums? (piemēram: 1979-05-04)",
