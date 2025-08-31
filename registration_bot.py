@@ -603,29 +603,38 @@ def get_zodiac_sign(birthday_str: str, language: str = "LT") -> str:
     try:
         month, day = map(int, birthday_str.split('-')[1:3])
         
-        zodiac_dates = [
-            (1, 20, "Vandenis", "Aquarius", "Водолей", "Ūdensvīrs"),
-            (2, 19, "Žuvys", "Pisces", "Рыбы", "Zivis"),
-            (3, 21, "Avinas", "Aries", "Овен", "Auns"),
-            (4, 20, "Jautis", "Taurus", "Телец", "Vērsis"),
-            (5, 21, "Dvyniai", "Gemini", "Близнецы", "Dvīņi"),
-            (6, 21, "Vėžys", "Cancer", "Рак", "Vēzis"),
-            (7, 23, "Liūtas", "Leo", "Лев", "Lauva"),
-            (8, 23, "Mergelė", "Virgo", "Дева", "Jaunava"),
-            (9, 23, "Svarstyklės", "Libra", "Весы", "Svari"),
-            (10, 23, "Skorpionas", "Scorpio", "Скорпион", "Skorpions"),
-            (11, 22, "Šaulys", "Sagittarius", "Стрелец", "Strēlnieks"),
-            (12, 22, "Ožiaragis", "Capricorn", "Козерог", "Mežāzis")
+        # Zodiac signs with correct date ranges
+        zodiac_signs = [
+            # (start_month, start_day, end_month, end_day, LT, EN, RU, LV)
+            (3, 21, 4, 19, "Avinas", "Aries", "Овен", "Auns"),           # Aries
+            (4, 20, 5, 20, "Jautis", "Taurus", "Телец", "Vērsis"),      # Taurus
+            (5, 21, 6, 20, "Dvyniai", "Gemini", "Близнецы", "Dvīņi"),   # Gemini
+            (6, 21, 7, 22, "Vėžys", "Cancer", "Рак", "Vēzis"),          # Cancer
+            (7, 23, 8, 22, "Liūtas", "Leo", "Лев", "Lauva"),            # Leo
+            (8, 23, 9, 22, "Mergelė", "Virgo", "Дева", "Jaunava"),      # Virgo
+            (9, 23, 10, 22, "Svarstyklės", "Libra", "Весы", "Svari"),   # Libra
+            (10, 23, 11, 21, "Skorpionas", "Scorpio", "Скорпион", "Skorpions"), # Scorpio
+            (11, 22, 12, 21, "Šaulys", "Sagittarius", "Стрелец", "Strēlnieks"), # Sagittarius
+            (12, 22, 1, 19, "Ožiaragis", "Capricorn", "Козерог", "Mežāzis"),    # Capricorn
+            (1, 20, 2, 18, "Vandenis", "Aquarius", "Водолей", "Ūdensvīrs"),     # Aquarius
+            (2, 19, 3, 20, "Žuvys", "Pisces", "Рыбы", "Zivis")          # Pisces
         ]
         
-        for i, (end_month, end_day, lt, en, ru, lv) in enumerate(zodiac_dates):
-            if (month == end_month and day <= end_day) or (month == (end_month % 12) + 1 and day > end_day):
-                languages = {"LT": lt, "EN": en, "RU": ru, "LV": lv}
-                return languages.get(language, lt)
+        for start_month, start_day, end_month, end_day, lt, en, ru, lv in zodiac_signs:
+            # Handle year boundary (Capricorn: Dec 22 - Jan 19)
+            if start_month > end_month:  # Crosses year boundary
+                if (month == start_month and day >= start_day) or (month == end_month and day <= end_day):
+                    languages = {"LT": lt, "EN": en, "RU": ru, "LV": lv}
+                    return languages.get(language, lt)
+            else:  # Normal case
+                if (month == start_month and day >= start_day) or (month == end_month and day <= end_day):
+                    languages = {"LT": lt, "EN": en, "RU": ru, "LV": lv}
+                    return languages.get(language, lt)
         
-        return zodiac_dates[0][2]  # Default to first sign
+        # Fallback
+        return "Mergelė" if language == "LT" else "Virgo"
     except:
-        return "Vandenis" if language == "LT" else "Aquarius"
+        return "Mergelė" if language == "LT" else "Virgo"
 
 async def generate_horoscope(chat_id: int, user_data: dict) -> str:
     """Generate personalized horoscope using OpenAI."""
