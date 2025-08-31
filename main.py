@@ -253,7 +253,7 @@ async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TY
     
     await update.message.reply_text(
         f"Puiku, {context.user_data['name']}! 🎉\n\n"
-        "Tavo profilis sukurtas! Nuo šiol kiekvieną rytą 07:30 gausi savo asmeninį horoskopą! 🌞\n\n"
+        "Tavo profilis sukurtas! Nuo šiol kiekvieną rytą 07:30 (Lietuvos laiku) gausi savo asmeninį horoskopą! 🌞\n\n"
         "Gali naudoti:\n"
         "• /horoscope - Gauti šiandienos horoskopą\n"
         "• /profile - Peržiūrėti savo profilį\n"
@@ -323,7 +323,7 @@ async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TY
     if last_horoscope_date and datetime.strptime(last_horoscope_date, "%Y-%m-%d").date() == today:
         await update.message.reply_text(
             f"Labas, {name}! 🌟\n\n"
-            "Tu jau gavai šiandienos horoskopą! Rytą 07:30 gausi naują. 🌞"
+            "Tu jau gavai šiandienos horoskopą! Rytą 07:30 (Lietuvos laiku) gausi naują. 🌞"
         )
         return
     
@@ -494,7 +494,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 **Kaip veikia:**
 1. Užsiregistruok su /start
 2. Atsakyk į klausimus
-3. Gauk asmeninį horoskopą kiekvieną rytą 07:30
+3. Gauk asmeninį horoskopą kiekvieną rytą 07:30 (Lietuvos laiku)
 4. Naudok /horoscope, kad gautum horoskopą bet kada
 
 **Funkcijos:**
@@ -531,6 +531,24 @@ async def test_horoscope_command(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as e:
         logger.error(f"Test horoscope error for user {chat_id}: {e}")
         await update.message.reply_text(f"❌ Klaida: {str(e)}")
+
+async def send_today_horoscopes_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually send today's horoscopes to all users (admin command)."""
+    chat_id = update.effective_chat.id
+    
+    # Simple admin check (you can modify this)
+    if chat_id != 658488948:  # Replace with your chat ID
+        await update.message.reply_text("❌ Ši komanda prieinama tik administratoriui.")
+        return
+    
+    await update.message.reply_text("📤 Siunčiu šiandienos horoskopus visiems vartotojams...")
+    
+    try:
+        await send_daily_horoscopes()
+        await update.message.reply_text("✅ Horoskopai išsiųsti visiems vartotojams!")
+    except Exception as e:
+        logger.error(f"Error sending today's horoscopes: {e}")
+        await update.message.reply_text(f"❌ Klaida siunčiant horoskopus: {str(e)}")
 
 async def send_daily_horoscopes():
     """Send daily horoscopes to all registered users with optimizations."""
@@ -605,8 +623,10 @@ def schedule_horoscopes():
         except Exception as e:
             logger.error(f"Error in scheduled horoscope sending: {e}")
     
-    schedule.every().day.at("07:30").do(run_async_horoscopes)
-    logger.info("Daily horoscopes scheduled for 07:30")
+    # Schedule for 07:30 Lithuania time (UTC+2)
+    # Since server might be in different timezone, we need to adjust
+    schedule.every().day.at("05:30").do(run_async_horoscopes)  # 05:30 UTC = 07:30 Lithuania
+    logger.info("Daily horoscopes scheduled for 07:30 Lithuania time (05:30 UTC)")
     
     while True:
         try:
@@ -651,6 +671,7 @@ async def main():
     app.add_handler(CommandHandler("horoscope", get_horoscope_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("test_horoscope", test_horoscope_command))
+    app.add_handler(CommandHandler("send_today", send_today_horoscopes_command))
     app.add_handler(CommandHandler("help", help_command))
 
     # Start scheduler in a separate thread
