@@ -281,14 +281,51 @@ def initialize_database():
         conn.execute("PRAGMA cache_size=10000")
         conn.execute("PRAGMA temp_store=MEMORY")
         
+        # Check if old schema exists and migrate
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        if 'interests' in columns:
+            logger.info("Migrating database schema - removing interests column")
+            # Create new table without interests
+            conn.execute("""
+                CREATE TABLE users_new (
+                    chat_id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    birthday TEXT NOT NULL,
+                    language TEXT NOT NULL CHECK (language IN ('LT', 'EN', 'RU', 'LV')),
+                    profession TEXT,
+                    hobbies TEXT,
+                    sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras')),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_horoscope_date DATE,
+                    is_active BOOLEAN DEFAULT 1
+                )
+            """)
+            
+            # Copy data from old table to new table
+            conn.execute("""
+                INSERT INTO users_new (chat_id, name, birthday, language, profession, hobbies, sex, created_at, last_horoscope_date, is_active)
+                SELECT chat_id, name, birthday, language, profession, hobbies, sex, created_at, last_horoscope_date, is_active
+                FROM users
+            """)
+            
+            # Drop old table and rename new table
+            conn.execute("DROP TABLE users")
+            conn.execute("ALTER TABLE users_new RENAME TO users")
+            
+            logger.info("Database schema migration completed")
+        
+        # Create users table with optimized schema (if it doesn't exist)
         conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             chat_id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
             birthday TEXT NOT NULL,
             language TEXT NOT NULL CHECK (language IN ('LT', 'EN', 'RU', 'LV')),
-            profession TEXT NOT NULL,
-            hobbies TEXT NOT NULL,
+            profession TEXT,
+            hobbies TEXT,
             sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras')),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_horoscope_date DATE,
