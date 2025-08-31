@@ -97,6 +97,78 @@ def get_question_text(field: str, language: str = "LT") -> str:
     }
     return questions.get(language, questions["LT"]).get(field, "")
 
+def get_message_text(message_type: str, language: str = "LT") -> str:
+    """Get message text in the specified language."""
+    messages = {
+        "LT": {
+            "welcome": "Labas! Aš esu horoskopų botas. Pradėkime registraciją!",
+            "great": "Puiku!",
+            "registration_complete": "Registracija baigta! Dabar gali gauti horoskopus.",
+            "error_try_again": "Atsiprašau, įvyko klaida. Bandyk dar kartą.",
+            "rate_limited": "Palaukite {seconds} sekundės prieš siųsdami kitą žinutę."
+        },
+        "EN": {
+            "welcome": "Hello! I'm a horoscope bot. Let's start registration!",
+            "great": "Great!",
+            "registration_complete": "Registration completed! Now you can receive horoscopes.",
+            "error_try_again": "Sorry, an error occurred. Please try again.",
+            "rate_limited": "Please wait {seconds} seconds before sending another message."
+        },
+        "RU": {
+            "welcome": "Привет! Я бот-гороскоп. Давайте начнем регистрацию!",
+            "great": "Отлично!",
+            "registration_complete": "Регистрация завершена! Теперь вы можете получать гороскопы.",
+            "error_try_again": "Извините, произошла ошибка. Попробуйте еще раз.",
+            "rate_limited": "Пожалуйста, подождите {seconds} секунд перед отправкой следующего сообщения."
+        },
+        "LV": {
+            "welcome": "Sveiki! Esmu horoskopu bots. Sāksim reģistrāciju!",
+            "great": "Lieliski!",
+            "registration_complete": "Reģistrācija pabeigta! Tagad varat saņemt horoskopus.",
+            "error_try_again": "Atvainojiet, radās kļūda. Lūdzu, mēģiniet vēlreiz.",
+            "rate_limited": "Lūdzu, gaidiet {seconds} sekundes pirms nosūtīt nākamo ziņojumu."
+        }
+    }
+    return messages.get(language, messages["LT"]).get(message_type, "")
+
+def get_error_message(field: str, language: str = "LT") -> str:
+    """Get error message in the specified language."""
+    error_messages = {
+        "LT": {
+            "name": "Vardas turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
+            "birthday": "Neteisingas datos formatas! Naudok formatą YYYY-MM-DD (pvz.: 1990-05-15):",
+            "language": "Pasirink vieną iš: LT, EN, RU arba LV:",
+            "profession": "Profesija turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
+            "hobbies": "Pomėgiai turi būti 2-500 simbolių ilgio. Bandyk dar kartą:",
+            "sex": "Pasirink: moteris arba vyras:",
+        },
+        "EN": {
+            "name": "Name must be at least 2 characters long. Try again:",
+            "birthday": "Invalid date format! Use YYYY-MM-DD format (e.g.: 1990-05-15):",
+            "language": "Choose one of: LT, EN, RU or LV:",
+            "profession": "Profession must be at least 2 characters long. Try again:",
+            "hobbies": "Hobbies must be 2-500 characters long. Try again:",
+            "sex": "Choose: woman or man:",
+        },
+        "RU": {
+            "name": "Имя должно содержать не менее 2 символов. Попробуйте еще раз:",
+            "birthday": "Неверный формат даты! Используйте формат YYYY-MM-DD (например: 1990-05-15):",
+            "language": "Выберите один из: LT, EN, RU или LV:",
+            "profession": "Профессия должна содержать не менее 2 символов. Попробуйте еще раз:",
+            "hobbies": "Хобби должны содержать 2-500 символов. Попробуйте еще раз:",
+            "sex": "Выберите: женщина или мужчина:",
+        },
+        "LV": {
+            "name": "Vārdam jābūt vismaz 2 rakstzīmju garam. Mēģiniet vēlreiz:",
+            "birthday": "Nepareizs datuma formāts! Izmantojiet formātu YYYY-MM-DD (piemēram: 1990-05-15):",
+            "language": "Izvēlieties vienu no: LT, EN, RU vai LV:",
+            "profession": "Profesijai jābūt vismaz 2 rakstzīmju garai. Mēģiniet vēlreiz:",
+            "hobbies": "Hobijiem jābūt 2-500 rakstzīmju garam. Mēģiniet vēlreiz:",
+            "sex": "Izvēlieties: sieviete vai vīrietis:",
+        }
+    }
+    return error_messages.get(language, error_messages["LT"]).get(field, "")
+
 def _validate_date(date_str: str) -> bool:
     """Validate date format."""
     try:
@@ -383,9 +455,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if is_rate_limited(chat_id):
         logger.warning(f"User {chat_id} is rate limited")
-        await update.message.reply_text(
-            f"⏳ Palaukite {RATE_LIMIT_SECONDS} sekundės prieš siųsdami kitą žinutę."
-        )
+        rate_limited_message = get_message_text("rate_limited", "LT").format(seconds=RATE_LIMIT_SECONDS)
+        await update.message.reply_text(f"⏳ {rate_limited_message}")
         return ConversationHandler.END
     
     # Check if user already exists
@@ -397,18 +468,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if existing_user:
         logger.info(f"Existing user {existing_user[0]} found for chat_id: {chat_id}")
-        await update.message.reply_text(
-            f"Labas, {existing_user[0]}! 🌟\n\n"
-            "Tu jau esi užsiregistravęs! Gali:\n"
-            "• /horoscope - Gauti šiandienos horoskopą\n"
-            "• /profile - Peržiūrėti savo profilį\n"
-            "• /update - Atnaujinti duomenis\n"
-            "• /help - Pagalba"
-        )
+        # Get user's language for the message
+        cursor.execute("SELECT language FROM users WHERE chat_id = ?", (chat_id,))
+        user_language = cursor.fetchone()[0] if cursor.fetchone() else "LT"
+        
+        existing_user_messages = {
+            "LT": f"Labas, {existing_user[0]}! 🌟\n\nTu jau esi užsiregistravęs! Gali:\n• /horoscope - Gauti šiandienos horoskopą\n• /profile - Peržiūrėti savo profilį\n• /update - Atnaujinti duomenis\n• /help - Pagalba",
+            "EN": f"Hello, {existing_user[0]}! 🌟\n\nYou are already registered! You can:\n• /horoscope - Get today's horoscope\n• /profile - View your profile\n• /update - Update your data\n• /help - Help",
+            "RU": f"Привет, {existing_user[0]}! 🌟\n\nВы уже зарегистрированы! Вы можете:\n• /horoscope - Получить сегодняшний гороскоп\n• /profile - Посмотреть профиль\n• /update - Обновить данные\n• /help - Помощь",
+            "LV": f"Sveiki, {existing_user[0]}! 🌟\n\nJūs jau esat reģistrējies! Jūs varat:\n• /horoscope - Saņemt šodienas horoskopu\n• /profile - Apskatīt savu profilu\n• /update - Atjaunināt datus\n• /help - Palīdzība"
+        }
+        await update.message.reply_text(existing_user_messages.get(user_language, existing_user_messages["LT"]))
         return ConversationHandler.END
     
     logger.info(f"Starting registration for new user chat_id: {chat_id}")
     try:
+        # Welcome message in Lithuanian (default language for new users)
         await update.message.reply_text(
             "Labas! Aš esu tavo asmeninis horoskopų botukas 🌟\n\n"
             "Atsakyk į kelis klausimus, kad galėčiau pritaikyti horoskopą būtent tau.\n\n"
@@ -431,9 +506,9 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
     
     if is_rate_limited(chat_id):
         logger.warning(f"User {chat_id} is rate limited")
-        await update.message.reply_text(
-            f"⏳ Palaukite {RATE_LIMIT_SECONDS} sekundės prieš siųsdami kitą žinutę."
-        )
+        user_language = context.user_data.get('language', 'LT')
+        rate_limited_message = get_message_text("rate_limited", user_language).format(seconds=RATE_LIMIT_SECONDS)
+        await update.message.reply_text(f"⏳ {rate_limited_message}")
         return question_index
     
     try:
@@ -441,15 +516,10 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
         
         if not validator(user_input):
             logger.warning(f"Validation failed for {chat_id} on {field_name}: {user_input}")
-            error_messages = {
-                ASKING_NAME: "Vardas turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
-                ASKING_BIRTHDAY: "Neteisingas datos formatas! Naudok formatą YYYY-MM-DD (pvz.: 1990-05-15):",
-                ASKING_LANGUAGE: "Pasirink vieną iš: LT, EN, RU arba LV:",
-                ASKING_PROFESSION: "Profesija turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
-                ASKING_HOBBIES: "Pomėgiai turi būti 2-500 simbolių ilgio. Bandyk dar kartą:",
-                ASKING_SEX: "Pasirink: moteris arba vyras:",
-            }
-            await update.message.reply_text(error_messages[question_index])
+            # Get user's selected language for error message
+            user_language = context.user_data.get('language', 'LT')
+            error_message = get_error_message(field_name, user_language)
+            await update.message.reply_text(error_message)
             return question_index
     except Exception as e:
         logger.error(f"Error in handle_question for {chat_id}: {e}")
@@ -479,13 +549,7 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
         next_question_text = get_question_text(next_field, user_language)
         
         # Get appropriate "Great!" message based on language
-        great_messages = {
-            "LT": "Puiku! 🌟",
-            "EN": "Great! 🌟", 
-            "RU": "Отлично! 🌟",
-            "LV": "Lieliski! 🌟"
-        }
-        great_msg = great_messages.get(user_language, "Puiku! 🌟")
+        great_msg = get_message_text("great", user_language) + " 🌟"
         
         await update.message.reply_text(f"{great_msg}\n\n{next_question_text}")
         return next_index
@@ -559,14 +623,7 @@ async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TY
         
         # Get appropriate error message based on language
         user_language = context.user_data.get('language', 'LT')
-        error_messages = {
-            "LT": "Atsiprašau, įvyko klaida registracijos metu. Naudok /reset ir pradėk iš naujo.",
-            "EN": "Sorry, an error occurred during registration. Use /reset and start over.",
-            "RU": "Извините, произошла ошибка при регистрации. Используйте /reset и начните заново.",
-            "LV": "Atvainojiet, reģistrācijas laikā radās kļūda. Izmantojiet /reset un sāciet no jauna."
-        }
-        
-        error_message = error_messages.get(user_language, error_messages["LT"])
+        error_message = get_message_text("error_try_again", user_language) + " Naudok /reset ir pradėk iš naujo."
         await update.message.reply_text(error_message)
 
 # Question handlers
