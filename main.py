@@ -253,6 +253,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     logger.info(f"Start command received from chat_id: {chat_id}")
     
+    # Clear any existing conversation state
+    context.user_data.clear()
+    
     if is_rate_limited(chat_id):
         logger.warning(f"User {chat_id} is rate limited")
         await update.message.reply_text(
@@ -280,12 +283,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     logger.info(f"Starting registration for new user chat_id: {chat_id}")
-    await update.message.reply_text(
-        "Labas! Aš esu tavo asmeninis horoskopų botukas 🌟\n\n"
-        "Atsakyk į kelis klausimus, kad galėčiau pritaikyti horoskopą būtent tau.\n\n"
-        "Pradėkime nuo tavo vardo:"
-    )
-    return ASKING_NAME
+    try:
+        await update.message.reply_text(
+            "Labas! Aš esu tavo asmeninis horoskopų botukas 🌟\n\n"
+            "Atsakyk į kelis klausimus, kad galėčiau pritaikyti horoskopą būtent tau.\n\n"
+            "Pradėkime nuo tavo vardo:"
+        )
+        logger.info(f"Registration message sent to chat_id: {chat_id}, returning ASKING_NAME")
+        return ASKING_NAME
+    except Exception as e:
+        logger.error(f"Error sending registration message to {chat_id}: {e}")
+        await update.message.reply_text("Atsiprašau, įvyko klaida. Bandyk dar kartą.")
+        return ConversationHandler.END
 
 async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, question_index: int):
     """Generic handler for all questions with validation."""
@@ -393,6 +402,39 @@ async def cancel_registration(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     context.user_data.clear()
     return ConversationHandler.END
+
+async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reset user data and allow re-registration."""
+    chat_id = update.effective_chat.id
+    logger.info(f"Reset command received from chat_id: {chat_id}")
+    
+    if is_rate_limited(chat_id):
+        await update.message.reply_text(
+            f"⏳ Palaukite {RATE_LIMIT_SECONDS} sekundės prieš siųsdami kitą žinutę."
+        )
+        return
+    
+    # Delete user from database
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM users WHERE chat_id = ?", (chat_id,))
+    conn.commit()
+    
+    # Clear any conversation state
+    context.user_data.clear()
+    
+    # Clear rate limiting cache for this user
+    if chat_id in user_last_message:
+        del user_last_message[chat_id]
+    if chat_id in user_states:
+        del user_states[chat_id]
+    
+    logger.info(f"User {chat_id} data reset successfully")
+    
+    await update.message.reply_text(
+        "🔄 Tavo duomenys ištrinti! ✅\n\n"
+        "Dabar gali pradėti registraciją iš naujo su komanda /start"
+    )
 
 async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get today's horoscope for the user."""
@@ -596,6 +638,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 **Komandos:**
 • /start - Pradėti registraciją
+• /reset - Ištrinti duomenis ir pradėti iš naujo
 • /test - Testuoti ar botas veikia
 • /horoscope - Gauti šiandienos horoskopą
 • /profile - Peržiūrėti savo profilį
@@ -778,6 +821,7 @@ async def main():
     # Add handlers - IMPORTANT: ConversationHandler must be added first
     app.add_handler(registration_handler)
     app.add_handler(CommandHandler("test", test_command))
+    app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(CommandHandler("horoscope", get_horoscope_command))
     app.add_handler(CommandHandler("profile", profile_command))
     app.add_handler(CommandHandler("test_horoscope", test_horoscope_command))
