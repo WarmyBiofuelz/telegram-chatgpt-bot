@@ -24,9 +24,12 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 from telegram import Update
 from telegram.ext import ContextTypes
 from shared.config import (
-    TELEGRAM_BOT_TOKEN, LOG_FORMAT, LOG_LEVEL,
-    RATE_LIMIT_SECONDS
+    TELEGRAM_BOT_TOKEN, OPENAI_API_KEY, LOG_FORMAT, LOG_LEVEL,
+    RATE_LIMIT_SECONDS, MAX_RETRIES, RETRY_DELAY, OPENAI_TIMEOUT,
+    MAX_TOKENS, TEMPERATURE, OPENAI_MODEL
 )
+from openai import OpenAI
+from openai import RateLimitError, APIError, APIConnectionError
 
 # Set up logging
 logging.basicConfig(format=LOG_FORMAT, level=LOG_LEVEL)
@@ -35,6 +38,9 @@ logger = logging.getLogger(__name__)
 # Database setup
 DB_PATH = "horoscope_users.db"
 _db_connection = None
+
+# Global OpenAI client
+client = None
 
 # Conversation states (Language first, then Name, Sex, Birthday, Profession, Hobbies)
 (ASKING_LANGUAGE, ASKING_NAME, ASKING_SEX, ASKING_BIRTHDAY, ASKING_PROFESSION, 
@@ -516,8 +522,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 **Komandos:**
 • /start - Pradėti registraciją
+• /horoscope - Gauti asmeninį horoskopą
 • /help - Ši pagalba
 • /reset - Ištrinti duomenis ir pradėti iš naujo
+• /test_db - Patikrinti duomenų bazės būklę
 
 **Registracijos procesas:**
 1. Pasirinkite kalbą (LT/EN/RU/LV)
@@ -528,8 +536,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 6. Įveskite pomėgius
 
 **Po registracijos:**
-• Gausite asmeninį horoskopą kiekvieną rytą 07:30
-• Galėsite naudoti /horoscope komandą bet kada
+• Naudokite /horoscope komandą bet kada
+• Gausite asmeninį horoskopą pagal jūsų duomenis
+• Horoskopas bus pritaikytas jūsų zodiac ženklui
 """
     await update.message.reply_text(help_text)
 
@@ -589,6 +598,199 @@ async def test_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Database test failed for {chat_id}: {e}")
         await update.message.reply_text(f"❌ Database test failed: {e}")
 
+def get_zodiac_sign(birthday_str: str, language: str = "LT") -> str:
+    """Calculate zodiac sign based on birthday and language."""
+    try:
+        month, day = map(int, birthday_str.split('-')[1:3])
+        
+        zodiac_dates = [
+            (1, 20, "Vandenis", "Aquarius", "Водолей", "Ūdensvīrs"),
+            (2, 19, "Žuvys", "Pisces", "Рыбы", "Zivis"),
+            (3, 21, "Avinas", "Aries", "Овен", "Auns"),
+            (4, 20, "Jautis", "Taurus", "Телец", "Vērsis"),
+            (5, 21, "Dvyniai", "Gemini", "Близнецы", "Dvīņi"),
+            (6, 21, "Vėžys", "Cancer", "Рак", "Vēzis"),
+            (7, 23, "Liūtas", "Leo", "Лев", "Lauva"),
+            (8, 23, "Mergelė", "Virgo", "Дева", "Jaunava"),
+            (9, 23, "Svarstyklės", "Libra", "Весы", "Svari"),
+            (10, 23, "Skorpionas", "Scorpio", "Скорпион", "Skorpions"),
+            (11, 22, "Šaulys", "Sagittarius", "Стрелец", "Strēlnieks"),
+            (12, 22, "Ožiaragis", "Capricorn", "Козерог", "Mežāzis")
+        ]
+        
+        for i, (end_month, end_day, lt, en, ru, lv) in enumerate(zodiac_dates):
+            if (month == end_month and day <= end_day) or (month == (end_month % 12) + 1 and day > end_day):
+                languages = {"LT": lt, "EN": en, "RU": ru, "LV": lv}
+                return languages.get(language, lt)
+        
+        return zodiac_dates[0][2]  # Default to first sign
+    except:
+        return "Vandenis" if language == "LT" else "Aquarius"
+
+async def generate_horoscope(chat_id: int, user_data: dict) -> str:
+    """Generate personalized horoscope using OpenAI."""
+    global client
+    
+    try:
+        if client is None:
+            client = OpenAI(api_key=OPENAI_API_KEY, timeout=OPENAI_TIMEOUT)
+        
+        # Get zodiac sign
+        zodiac = get_zodiac_sign(user_data['birthday'], user_data['language'])
+        
+        # Create personalized prompt
+        prompts = {
+            "LT": f"""Sukurk asmeninį horoskopą šiandienai žmogui:
+Vardas: {user_data['name']}
+Lytis: {user_data['sex']}
+Gimimo data: {user_data['birthday']}
+Zodiac ženklas: {zodiac}
+Profesija: {user_data['profession']}
+Pomėgiai: {user_data['hobbies']}
+
+Horoskopas turi būti:
+- Asmeniškas ir pritaikytas šiam žmogui
+- 4-5 sakiniai
+- Teigiamas ir motyvuojantis
+- Pateikti praktinius patarimus
+- Įtraukti humorą ir optimizmą
+- Paminėti zodiac ženklą natūraliai
+
+Atsakyk tik horoskopo tekstu, be papildomų komentarų.""",
+            
+            "EN": f"""Create a personalized horoscope for today for a person:
+Name: {user_data['name']}
+Gender: {user_data['sex']}
+Birth date: {user_data['birthday']}
+Zodiac sign: {zodiac}
+Profession: {user_data['profession']}
+Hobbies: {user_data['hobbies']}
+
+The horoscope should be:
+- Personal and tailored to this person
+- 4-5 sentences
+- Positive and motivating
+- Provide practical advice
+- Include humor and optimism
+- Mention zodiac sign naturally
+
+Respond only with the horoscope text, no additional comments.""",
+            
+            "RU": f"""Создай персональный гороскоп на сегодня для человека:
+Имя: {user_data['name']}
+Пол: {user_data['sex']}
+Дата рождения: {user_data['birthday']}
+Знак зодиака: {zodiac}
+Профессия: {user_data['profession']}
+Хобби: {user_data['hobbies']}
+
+Гороскоп должен быть:
+- Личным и адаптированным к этому человеку
+- 4-5 предложений
+- Позитивным и мотивирующим
+- Давать практические советы
+- Включать юмор и оптимизм
+- Упоминать знак зодиака естественно
+
+Отвечай только текстом гороскопа, без дополнительных комментариев.""",
+            
+            "LV": f"""Izveido personīgu horoskopu šodienai cilvēkam:
+Vārds: {user_data['name']}
+Dzimums: {user_data['sex']}
+Dzimšanas datums: {user_data['birthday']}
+Zodiac zīme: {zodiac}
+Profesija: {user_data['profession']}
+Hobiji: {user_data['hobbies']}
+
+Horoskopam jābūt:
+- Personīgam un pielāgotam šim cilvēkam
+- 4-5 teikumiem
+- Pozitīvam un motivējošam
+- Sniegt praktiskus padomus
+- Iekļaut humoru un optimismu
+- Dabiski pieminēt zodiac zīmi
+
+Atbildi tikai ar horoskopa tekstu, bez papildu komentāriem."""
+        }
+        
+        prompt = prompts.get(user_data['language'], prompts["LT"])
+        
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=MAX_TOKENS,
+            temperature=TEMPERATURE
+        )
+        
+        return response.choices[0].message.content.strip()
+        
+    except Exception as e:
+        logger.error(f"Error generating horoscope for {chat_id}: {e}")
+        error_messages = {
+            "LT": "Atsiprašau, nepavyko sugeneruoti horoskopo. Bandykite vėliau.",
+            "EN": "Sorry, couldn't generate horoscope. Please try again later.",
+            "RU": "Извините, не удалось сгенерировать гороскоп. Попробуйте позже.",
+            "LV": "Atvainojiet, neizdevās ģenerēt horoskopu. Mēģiniet vēlāk."
+        }
+        return error_messages.get(user_data.get('language', 'LT'), error_messages["LT"])
+
+async def horoscope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /horoscope command."""
+    chat_id = update.effective_chat.id
+    logger.info(f"Horoscope command received from {chat_id}")
+    
+    try:
+        # Get user data from database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
+        user_row = cursor.fetchone()
+        
+        if not user_row:
+            # User not registered
+            not_registered_messages = {
+                "LT": "Jūs dar neesate užsiregistravę! Naudokite /start komandą registracijai.",
+                "EN": "You are not registered yet! Use /start command to register.",
+                "RU": "Вы еще не зарегистрированы! Используйте команду /start для регистрации.",
+                "LV": "Jūs vēl neesat reģistrējies! Izmantojiet /start komandu reģistrācijai."
+            }
+            await update.message.reply_text(not_registered_messages.get("LT", not_registered_messages["LT"]))
+            return
+        
+        # Convert row to dict
+        user_data = {
+            'name': user_row[1],
+            'birthday': user_row[2],
+            'language': user_row[3],
+            'profession': user_row[4],
+            'hobbies': user_row[5],
+            'sex': user_row[6]
+        }
+        
+        # Generate horoscope
+        loading_messages = {
+            "LT": "🔮 Generuoju jūsų asmeninį horoskopą...",
+            "EN": "🔮 Generating your personal horoscope...",
+            "RU": "🔮 Генерирую ваш личный гороскоп...",
+            "LV": "🔮 Ģenerēju jūsu personīgo horoskopu..."
+        }
+        
+        loading_msg = await update.message.reply_text(
+            loading_messages.get(user_data['language'], loading_messages["LT"])
+        )
+        
+        horoscope = await generate_horoscope(chat_id, user_data)
+        
+        # Delete loading message and send horoscope
+        await loading_msg.delete()
+        await update.message.reply_text(f"🌟 **{user_data['name']}**, jūsų horoskopas šiandienai:\n\n{horoscope}")
+        
+        logger.info(f"Horoscope sent successfully to {chat_id}")
+        
+    except Exception as e:
+        logger.error(f"Error in horoscope command for {chat_id}: {e}")
+        await update.message.reply_text("Atsiprašau, įvyko klaida. Bandykite dar kartą.")
+
 async def main():
     """Main function to run the registration bot."""
     logger.info("Starting Registration Bot...")
@@ -618,6 +820,7 @@ async def main():
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("test_db", test_db_command))
+    app.add_handler(CommandHandler("horoscope", horoscope_command))
     
     # Check if we should use webhook (for Render)
     use_webhook = os.getenv('USE_WEBHOOK', 'false').lower() == 'true'
