@@ -52,7 +52,7 @@ QUESTIONS = [
     (ASKING_BIRTHDAY, "birthday", "Kokia tavo gimimo data? (pvz.: 1979-05-04)", 
      lambda x: _validate_date(x)),
     (ASKING_PROFESSION, "profession", "Kokia tavo profesija?", lambda x: len(x.strip()) >= 2),
-    (ASKING_HOBBIES, "hobbies", "Kokie tavo pomėgiai?", lambda x: len(x.strip()) >= 2),
+    (ASKING_HOBBIES, "hobbies", "Kokie tavo pomėgiai?", lambda x: len(x.strip()) >= 2 and len(x.strip()) <= 500),
 ]
 
 # Rate limiting cache
@@ -388,19 +388,24 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
             ASKING_BIRTHDAY: "Neteisingas datos formatas! Naudok formatą YYYY-MM-DD (pvz.: 1990-05-15):",
             ASKING_LANGUAGE: "Pasirink vieną iš: LT, EN, RU arba LV:",
             ASKING_PROFESSION: "Profesija turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
-            ASKING_HOBBIES: "Pomėgiai turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
+            ASKING_HOBBIES: "Pomėgiai turi būti 2-500 simbolių ilgio. Bandyk dar kartą:",
             ASKING_SEX: "Pasirink: moteris arba vyras:",
         }
         await update.message.reply_text(error_messages[question_index])
         return question_index
     
-    # Store the validated input
+    # Store the validated input with sanitization
     if field_name == "language":
         user_input = user_input.upper()
     elif field_name == "sex":
         user_input = user_input.lower()
+    elif field_name in ["name", "profession", "hobbies"]:
+        # Sanitize text input - remove excessive whitespace and limit length
+        user_input = " ".join(user_input.split())  # Remove extra whitespace
+        user_input = user_input[:500]  # Limit to 500 characters
     
     context.user_data[field_name] = user_input
+    logger.info(f"Stored {field_name} for {chat_id}: {user_input[:50]}...")  # Log first 50 chars
     
     # Move to next question or complete registration
     next_index = question_index + 1
@@ -448,19 +453,25 @@ async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TY
         
         conn = get_db_connection()
         cursor = conn.cursor()
+        
+        # Prepare data for database insertion
+        user_data = (
+            chat_id,
+            context.user_data['name'][:100],  # Limit name to 100 chars
+            context.user_data['birthday'],
+            context.user_data['language'],
+            context.user_data['profession'][:200],  # Limit profession to 200 chars
+            context.user_data['hobbies'][:500],  # Limit hobbies to 500 chars
+            context.user_data['sex']
+        )
+        
+        logger.info(f"Inserting user data for {chat_id}: {user_data}")
+        
         cursor.execute("""
         INSERT OR REPLACE INTO users 
         (chat_id, name, birthday, language, profession, hobbies, sex, is_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-        """, (
-            chat_id,
-            context.user_data['name'],
-            context.user_data['birthday'],
-            context.user_data['language'],
-            context.user_data['profession'],
-            context.user_data['hobbies'],
-            context.user_data['sex']
-        ))
+        """, user_data)
         conn.commit()
         logger.info(f"User {chat_id} successfully saved to database")
         
