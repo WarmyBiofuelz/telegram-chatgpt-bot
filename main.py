@@ -623,10 +623,10 @@ def schedule_horoscopes():
         except Exception as e:
             logger.error(f"Error in scheduled horoscope sending: {e}")
     
-    # Schedule for 07:30 Lithuania time (UTC+2)
-    # Since server might be in different timezone, we need to adjust
-    schedule.every().day.at("05:30").do(run_async_horoscopes)  # 05:30 UTC = 07:30 Lithuania
-    logger.info("Daily horoscopes scheduled for 07:30 Lithuania time (05:30 UTC)")
+    # Schedule for 07:30 Lithuania time
+    # Server is already in Lithuania timezone, so use 07:30 server time
+    schedule.every().day.at("07:30").do(run_async_horoscopes)
+    logger.info("Daily horoscopes scheduled for 07:30 Lithuania time")
     
     while True:
         try:
