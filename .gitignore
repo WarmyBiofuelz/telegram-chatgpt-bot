@@ -210,3 +210,6 @@ __marimo__/
 .env
 .env
 >>>>>>> 6a1b369 (Remove .env and add to .gitignore)
+*.db
+*.db-shm
+*.db-wal
