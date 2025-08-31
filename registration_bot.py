@@ -40,17 +40,17 @@ _db_connection = None
 
 # Questions sequence with validation
 QUESTIONS = [
-    (ASKING_LANGUAGE, "language", 
+    (ASKING_LANGUAGE, "language", "🇱🇹 Rašyk LT lietuviškai\n🇬🇧 Type EN for English\n🇷🇺 Напиши RU по-русски\n🇱🇻 Raksti LV latviešu valodā", 
      lambda x: x.strip().upper() in ['LT', 'EN', 'RU', 'LV']),
-    (ASKING_NAME, "name", 
+    (ASKING_NAME, "name", "Koks tavo vardas?", 
      lambda x: len(x.strip()) >= 2),
-    (ASKING_SEX, "sex", 
+    (ASKING_SEX, "sex", "Kokia tavo lytis? (moteris/vyras)", 
      lambda x: x.strip().lower() in ['moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis']),
-    (ASKING_BIRTHDAY, "birthday", 
+    (ASKING_BIRTHDAY, "birthday", "Kokia tavo gimimo data? (pvz.: 1979-05-04)", 
      lambda x: _validate_date(x)),
-    (ASKING_PROFESSION, "profession", 
+    (ASKING_PROFESSION, "profession", "Kokia tavo profesija?", 
      lambda x: len(x.strip()) >= 2),
-    (ASKING_HOBBIES, "hobbies", 
+    (ASKING_HOBBIES, "hobbies", "Kokie tavo pomėgiai?", 
      lambda x: len(x.strip()) >= 2 and len(x.strip()) <= 500),
 ]
 
@@ -328,7 +328,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Starting registration for new user chat_id: {chat_id}")
     try:
         # Start with language selection (in Lithuanian as default)
-        await update.message.reply_text(get_question_text("language", "LT"))
+        _, _, language_question_text, _ = QUESTIONS[ASKING_LANGUAGE]
+        await update.message.reply_text(language_question_text)
         logger.info(f"Language selection message sent to chat_id: {chat_id}, returning ASKING_LANGUAGE")
         return ASKING_LANGUAGE
     except Exception as e:
@@ -403,11 +404,10 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
     # Move to next question or complete registration
     next_index = question_index + 1
     if next_index < len(QUESTIONS):
-        _, next_field, _, _ = QUESTIONS[next_index]
+        _, next_field, next_question_text, _ = QUESTIONS[next_index]
         
         # Get the user's selected language for subsequent questions
         user_language = context.user_data.get('language', 'LT')
-        next_question_text = get_question_text(next_field, user_language)
         
         # Get appropriate "Great!" message based on language
         great_msg = get_message_text("great", user_language) + " 🌟"
