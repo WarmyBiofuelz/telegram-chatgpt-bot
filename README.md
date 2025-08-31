@@ -1,20 +1,15 @@
-# Horoscope Bot - Separated Architecture 🌟
+# Horoscope Bot - Unified Architecture 🌟
 
-A multilingual Telegram bot system that provides personalized horoscopes using OpenAI's GPT-4o model. The system is now split into two focused bots for better maintainability and scalability.
+A multilingual Telegram bot that provides personalized horoscopes using OpenAI's GPT-4o model. The bot handles both user registration and horoscope generation in a single, unified service.
 
 ## 🏗️ Architecture
 
-The bot system consists of two separate components:
+The bot is a unified system that combines registration and horoscope functionality:
 
-### 1. Registration Bot (`registration_bot.py`)
-- **Purpose**: Handles user registration and database management
-- **Features**: User onboarding, data collection, profile management
-- **Commands**: `/start`, `/reset`, `/help`
-
-### 2. Horoscope Bot (`horoscope_bot.py`)
-- **Purpose**: Generates and sends horoscopes from database data
-- **Features**: Horoscope generation, daily delivery, profile viewing
-- **Commands**: `/horoscope`, `/profile`, `/help`
+### Unified Bot (`registration_bot.py`)
+- **Purpose**: Handles user registration, database management, and horoscope generation
+- **Features**: User onboarding, data collection, profile management, horoscope generation
+- **Commands**: `/start`, `/horoscope`, `/reset`, `/help`, `/test_db`
 
 ## 🚀 Features
 
@@ -25,20 +20,17 @@ The bot system consists of two separate components:
 - **💾 User Profiles**: SQLite database to store user information
 - **🎯 GPT-4o Powered**: High-quality, personalized horoscope generation
 - **♈ Zodiac Integration**: Automatic zodiac sign calculation and integration
-- **⚡ Separated Architecture**: Independent bots for better maintainability
+- **⚡ Unified Architecture**: Single bot for cost-effective deployment
 - **🔄 Rate Limiting**: Prevents spam and abuse
 
 ## 📊 Commands
 
-### Registration Bot
+### Unified Bot
 - `/start` - Start registration process
+- `/horoscope` - Get today's personalized horoscope
 - `/reset` - Reset your data and re-register
 - `/help` - Show help information
-
-### Horoscope Bot
-- `/horoscope` - Get today's horoscope
-- `/profile` - View your profile
-- `/help` - Show help information
+- `/test_db` - Test database connection
 
 ## 🎯 Registration Process
 
@@ -71,7 +63,7 @@ TEMPERATURE=0.7           # AI response creativity (0.0-1.0)
 LOG_LEVEL=INFO            # Logging level
 ```
 
-## 🚀 Running the Bots
+## 🚀 Running the Bot
 
 1. **Install Dependencies**:
    ```bash
@@ -81,32 +73,16 @@ LOG_LEVEL=INFO            # Logging level
 2. **Set Up Environment**:
    Create `.env` file with your API keys
 
-3. **Run the Bots**:
-
-   **Option 1: Run Registration Bot Only**
+3. **Run the Bot**:
    ```bash
    python start_registration_bot.py
    ```
 
-   **Option 2: Run Horoscope Bot Only**
-   ```bash
-   python start_horoscope_bot.py
-   ```
-
-   **Option 3: Run Both Bots (Separate Terminals)**
-   ```bash
-   # Terminal 1
-   python start_registration_bot.py
-
-   # Terminal 2
-   python start_horoscope_bot.py
-   ```
-
-**Note**: The old `main.py` file has been removed as it's no longer needed with the separated architecture.
+**Note**: The bot now handles both registration and horoscope generation in a single service for cost-effective deployment.
 
 ## 🗄️ Database Schema
 
-The bots share a SQLite database with the following schema:
+The bot uses a SQLite database with the following schema:
 
 ```sql
 CREATE TABLE users (
@@ -126,18 +102,18 @@ CREATE TABLE users (
 ## 🎯 How It Works
 
 ### User Registration Flow:
-1. **Start Registration**: User sends `/start` to Registration Bot
+1. **Start Registration**: User sends `/start` to the bot
 2. **Profile Creation**: Bot asks 6 questions in user's selected language
-3. **Profile Storage**: Data saved to shared SQLite database
+3. **Profile Storage**: Data saved to SQLite database
 4. **Confirmation**: User receives confirmation and available commands
 
-### Daily Horoscope Generation:
-1. **Scheduled Delivery**: Horoscope Bot runs daily at 07:30 AM
-2. **User Retrieval**: Bot fetches all registered users from database
-3. **Personalized Generation**: GPT-4o creates unique horoscope for each user
+### Horoscope Generation:
+1. **On-Demand**: User sends `/horoscope` command
+2. **User Retrieval**: Bot fetches user data from database
+3. **Personalized Generation**: GPT-4o creates unique horoscope for the user
 4. **Zodiac Integration**: Automatic zodiac sign calculation and integration
 5. **Language-Specific**: Horoscopes generated in user's preferred language
-6. **Automatic Sending**: Horoscopes delivered to all users
+6. **Instant Delivery**: Horoscope sent immediately to the user
 
 ### Horoscope Features:
 - **Personalized Content**: Based on user's profile data and zodiac sign
@@ -149,18 +125,18 @@ CREATE TABLE users (
 ## 🔧 Technical Features
 
 ### Architecture:
-- **Separated Bots**: Independent bots for registration and horoscope delivery
+- **Unified Bot**: Single bot handling both registration and horoscope generation
 - **Async/Await**: Modern Python async programming
 - **Conversation Handler**: Multi-step user registration
-- **Database Integration**: Shared SQLite for user data persistence
-- **Scheduling**: Background thread for daily horoscope delivery
+- **Database Integration**: SQLite for user data persistence
+- **On-Demand Generation**: Horoscopes generated when requested
 - **Error Handling**: Comprehensive error management and logging
 
 ### Performance:
 - **Rate Limiting**: Prevents spam and abuse
 - **Retry Logic**: Automatic retry on API failures
 - **Efficient Database**: Optimized SQLite queries with WAL mode
-- **Background Processing**: Non-blocking scheduler
+- **On-Demand Processing**: Horoscopes generated when requested
 - **Connection Pooling**: Optimized database connections
 
 ### Security:
@@ -170,14 +146,14 @@ CREATE TABLE users (
 - **Rate Limiting**: Protection against abuse
 - **Data Sanitization**: Input cleaning and length limits
 
-## 💡 Benefits of Separated Architecture
+## 💡 Benefits of Unified Architecture
 
-- **Better Maintainability**: Each bot has a single responsibility
-- **Independent Scaling**: Can scale each bot independently
-- **Easier Debugging**: Issues are isolated to specific functionality
-- **Flexible Deployment**: Can deploy bots on different servers
-- **Resource Optimization**: Each bot only loads what it needs
-- **Fault Tolerance**: One bot failure doesn't affect the other
+- **Cost-Effective**: Single service deployment reduces hosting costs
+- **Simplified Management**: One bot to maintain and monitor
+- **Easier Deployment**: Single service configuration
+- **Resource Efficiency**: Shared resources and database connections
+- **Faster Development**: No need to coordinate between multiple services
+- **Better User Experience**: Seamless flow between registration and horoscopes
 
 ## 📈 Usage Examples
 
@@ -262,13 +238,13 @@ Bot: 🌟 **John's horoscope for today:**
 - **Microservices**: Further architecture separation
 - **API Gateway**: Centralized bot management
 
-## 🔄 Migration from Single Bot
+## 🔄 Migration from Separated Architecture
 
-If you're migrating from the single `main.py` bot:
+If you're migrating from the separated bot architecture:
 
-1. **Stop the old bot**
+1. **Stop the old separated bots**
 2. **The database schema is automatically migrated**
-3. **Start the new separated bots**
+3. **Start the new unified bot**
 4. **All existing user data is preserved**
 
 ## 📝 License
@@ -280,5 +256,7 @@ This project is open source and available under the MIT License.
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📞 Support
+
+For support, please open an issue on GitHub or contact the development team.
 
 For support, please open an issue on GitHub or contact the development team.
