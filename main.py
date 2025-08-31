@@ -68,6 +68,111 @@ def _validate_date(date_str: str) -> bool:
     except ValueError:
         return False
 
+def get_zodiac_sign(birthday: str) -> str:
+    """Calculate zodiac sign from birthday (YYYY-MM-DD format)."""
+    try:
+        date_obj = datetime.strptime(birthday, '%Y-%m-%d')
+        month = date_obj.month
+        day = date_obj.day
+        
+        # Zodiac sign dates
+        if (month == 3 and day >= 21) or (month == 4 and day <= 19):
+            return "Avinas"  # Aries
+        elif (month == 4 and day >= 20) or (month == 5 and day <= 20):
+            return "Jautis"  # Taurus
+        elif (month == 5 and day >= 21) or (month == 6 and day <= 20):
+            return "Dvyniai"  # Gemini
+        elif (month == 6 and day >= 21) or (month == 7 and day <= 22):
+            return "Vėžys"  # Cancer
+        elif (month == 7 and day >= 23) or (month == 8 and day <= 22):
+            return "Liūtas"  # Leo
+        elif (month == 8 and day >= 23) or (month == 9 and day <= 22):
+            return "Mergelė"  # Virgo
+        elif (month == 9 and day >= 23) or (month == 10 and day <= 22):
+            return "Svarstyklės"  # Libra
+        elif (month == 10 and day >= 23) or (month == 11 and day <= 21):
+            return "Skorpionas"  # Scorpio
+        elif (month == 11 and day >= 22) or (month == 12 and day <= 21):
+            return "Šaulys"  # Sagittarius
+        elif (month == 12 and day >= 22) or (month == 1 and day <= 19):
+            return "Ožiaragis"  # Capricorn
+        elif (month == 1 and day >= 20) or (month == 2 and day <= 18):
+            return "Vandenis"  # Aquarius
+        else:  # (month == 2 and day >= 19) or (month == 3 and day <= 20)
+            return "Žuvys"  # Pisces
+    except ValueError:
+        return "Nežinomas"  # Unknown
+
+def get_zodiac_sign_en(birthday: str) -> str:
+    """Calculate zodiac sign in English from birthday (YYYY-MM-DD format)."""
+    try:
+        date_obj = datetime.strptime(birthday, '%Y-%m-%d')
+        month = date_obj.month
+        day = date_obj.day
+        
+        # Zodiac sign dates
+        if (month == 3 and day >= 21) or (month == 4 and day <= 19):
+            return "Aries"
+        elif (month == 4 and day >= 20) or (month == 5 and day <= 20):
+            return "Taurus"
+        elif (month == 5 and day >= 21) or (month == 6 and day <= 20):
+            return "Gemini"
+        elif (month == 6 and day >= 21) or (month == 7 and day <= 22):
+            return "Cancer"
+        elif (month == 7 and day >= 23) or (month == 8 and day <= 22):
+            return "Leo"
+        elif (month == 8 and day >= 23) or (month == 9 and day <= 22):
+            return "Virgo"
+        elif (month == 9 and day >= 23) or (month == 10 and day <= 22):
+            return "Libra"
+        elif (month == 10 and day >= 23) or (month == 11 and day <= 21):
+            return "Scorpio"
+        elif (month == 11 and day >= 22) or (month == 12 and day <= 21):
+            return "Sagittarius"
+        elif (month == 12 and day >= 22) or (month == 1 and day <= 19):
+            return "Capricorn"
+        elif (month == 1 and day >= 20) or (month == 2 and day <= 18):
+            return "Aquarius"
+        else:  # (month == 2 and day >= 19) or (month == 3 and day <= 20)
+            return "Pisces"
+    except ValueError:
+        return "Unknown"
+
+def get_zodiac_sign_ru(birthday: str) -> str:
+    """Calculate zodiac sign in Russian from birthday (YYYY-MM-DD format)."""
+    try:
+        date_obj = datetime.strptime(birthday, '%Y-%m-%d')
+        month = date_obj.month
+        day = date_obj.day
+        
+        # Zodiac sign dates
+        if (month == 3 and day >= 21) or (month == 4 and day <= 19):
+            return "Овен"
+        elif (month == 4 and day >= 20) or (month == 5 and day <= 20):
+            return "Телец"
+        elif (month == 5 and day >= 21) or (month == 6 and day <= 20):
+            return "Близнецы"
+        elif (month == 6 and day >= 21) or (month == 7 and day <= 22):
+            return "Рак"
+        elif (month == 7 and day >= 23) or (month == 8 and day <= 22):
+            return "Лев"
+        elif (month == 8 and day >= 23) or (month == 9 and day <= 22):
+            return "Дева"
+        elif (month == 9 and day >= 23) or (month == 10 and day <= 22):
+            return "Весы"
+        elif (month == 10 and day >= 23) or (month == 11 and day <= 21):
+            return "Скорпион"
+        elif (month == 11 and day >= 22) or (month == 12 and day <= 21):
+            return "Стрелец"
+        elif (month == 12 and day >= 22) or (month == 1 and day <= 19):
+            return "Козерог"
+        elif (month == 1 and day >= 20) or (month == 2 and day <= 18):
+            return "Водолей"
+        else:  # (month == 2 and day >= 19) or (month == 3 and day <= 20)
+            return "Рыбы"
+    except ValueError:
+        return "Неизвестно"
+
 def get_db_connection():
     """Get database connection with optimizations."""
     global _db_connection
@@ -349,58 +454,72 @@ async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TY
 async def generate_horoscope(name: str, birthday: str, language: str, profession: str, 
                            hobbies: str, sex: str) -> str:
     """Generate personalized horoscope using OpenAI with caching."""
+    # Calculate zodiac sign based on language
+    if language == "LT":
+        zodiac_sign = get_zodiac_sign(birthday)
+    elif language == "EN":
+        zodiac_sign = get_zodiac_sign_en(birthday)
+    else:  # RU
+        zodiac_sign = get_zodiac_sign_ru(birthday)
+    
     # Create optimized prompt based on language
     prompts = {
         "LT": f"""Tu esi patyręs astrologas ir psichologas, kuris rašo asmeniškus horoskopus. Šiandien rašai horoskopą {name} ({sex}), gimusiam {birthday}.
 
 Apie {name}:
+- Zodiac ženklas: {zodiac_sign}
 - Dirba: {profession}
 - Mėgsta: {hobbies}
 
 Rašyk natūralų, šiltą horoskopą, kuris:
 - Skamba kaip tikras astrologo patarimas, ne kaip AI generuotas tekstas
 - Naudoja {name} asmeninę informaciją natūraliai, ne kaip sąrašą
+- Įtraukia {zodiac_sign} ženklo charakteristikas ir energiją
 - Pateikia konkrečius, praktiškus patarimus, susijusius su jų gyvenimu
 - Yra motyvuojantis, bet ne per optimistiškas
 - Turi šiek tiek mistikos ir magijos, bet išlieka praktiškas
 - Skamba kaip kalbėtum su draugu, ne kaip skaitytum iš knygos
 - 4-6 sakiniai, natūraliai sujungti
 
-Pradėk nuo šiandienos energijos, tada pereik prie asmeninio patarimo.""",
+Pradėk nuo šiandienos energijos ir {zodiac_sign} ženklo įtakos, tada pereik prie asmeninio patarimo.""",
         
         "EN": f"""You are an experienced astrologer and psychologist writing a personal horoscope. Today you're writing for {name} ({sex}), born on {birthday}.
 
 About {name}:
+- Zodiac sign: {zodiac_sign}
 - Works as: {profession}
 - Enjoys: {hobbies}
 
 Write a natural, warm horoscope that:
 - Sounds like genuine astrological advice, not AI-generated text
 - Uses {name}'s personal information naturally, not as a checklist
+- Incorporates {zodiac_sign} sign characteristics and energy
 - Provides specific, practical advice related to their life
 - Is motivating but not overly optimistic
 - Has a touch of mysticism and magic, but stays practical
 - Sounds like you're talking to a friend, not reading from a book
 - 4-6 sentences, naturally connected
 
-Start with today's energy, then move to personal advice.""",
+Start with today's energy and {zodiac_sign} sign influence, then move to personal advice.""",
         
         "RU": f"""Ты опытный астролог и психолог, пишущий личные гороскопы. Сегодня ты пишешь гороскоп для {name} ({sex}), родившегося {birthday}.
 
 О {name}:
+- Знак зодиака: {zodiac_sign}
 - Работает: {profession}
 - Увлекается: {hobbies}
 
 Напиши естественный, тёплый гороскоп, который:
 - Звучит как настоящий астрологический совет, а не как ИИ-генерированный текст
 - Использует личную информацию {name} естественно, а не как список
+- Включает характеристики и энергию знака {zodiac_sign}
 - Даёт конкретные, практические советы, связанные с их жизнью
 - Мотивирует, но не слишком оптимистичен
 - Имеет немного мистики и магии, но остаётся практичным
 - Звучит как разговор с другом, а не как чтение из книги
 - 4-6 предложений, естественно связанных
 
-Начни с энергии дня, затем перейди к личному совету."""
+Начни с энергии дня и влияния знака {zodiac_sign}, затем перейди к личному совету."""
     }
     
     prompt = prompts.get(language, prompts["LT"])
