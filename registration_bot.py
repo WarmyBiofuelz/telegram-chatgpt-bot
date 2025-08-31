@@ -227,7 +227,7 @@ def initialize_database():
                     language TEXT NOT NULL CHECK (language IN ('LT', 'EN', 'RU', 'LV')),
                     profession TEXT,
                     hobbies TEXT,
-                    sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis')),
+                    sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis', 'virietis')),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_horoscope_date DATE,
                     is_active BOOLEAN DEFAULT 1
@@ -351,7 +351,7 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
         question_mappings = {
             ASKING_LANGUAGE: ("language", lambda x: x.strip().upper() in ['LT', 'EN', 'RU', 'LV']),
             ASKING_NAME: ("name", lambda x: len(x.strip()) >= 2),
-            ASKING_SEX: ("sex", lambda x: x.strip().lower() in ['moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis']),
+            ASKING_SEX: ("sex", lambda x: x.strip().lower() in ['moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis', 'virietis']),
             ASKING_BIRTHDAY: ("birthday", lambda x: _validate_date(x)),
             ASKING_PROFESSION: ("profession", lambda x: len(x.strip()) >= 2),
             ASKING_HOBBIES: ("hobbies", lambda x: len(x.strip()) >= 2 and len(x.strip()) <= 500),
@@ -412,7 +412,7 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
         question_mappings = {
             ASKING_LANGUAGE: ("language", lambda x: x.strip().upper() in ['LT', 'EN', 'RU', 'LV']),
             ASKING_NAME: ("name", lambda x: len(x.strip()) >= 2),
-            ASKING_SEX: ("sex", lambda x: x.strip().lower() in ['moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis']),
+            ASKING_SEX: ("sex", lambda x: x.strip().lower() in ['moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis', 'virietis']),
             ASKING_BIRTHDAY: ("birthday", lambda x: _validate_date(x)),
             ASKING_PROFESSION: ("profession", lambda x: len(x.strip()) >= 2),
             ASKING_HOBBIES: ("hobbies", lambda x: len(x.strip()) >= 2 and len(x.strip()) <= 500),
@@ -812,51 +812,68 @@ async def main():
     """Main function to run the registration bot."""
     logger.info("Starting Registration Bot...")
     
-    # Initialize database
-    initialize_database()
+    # Check for existing instance lock
+    lock_file = Path("bot_instance.lock")
+    if lock_file.exists():
+        logger.warning("Another bot instance is already running. Exiting...")
+        return
     
-    # Create application
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    # Create lock file
+    lock_file.write_text(f"Bot started at {datetime.now()}")
+    logger.info("Created instance lock file")
     
-    # Create conversation handler for registration
-    registration_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start_command)],
-        states={
-            ASKING_LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_language)],
-            ASKING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
-            ASKING_SEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_sex)],
-            ASKING_BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_birthday)],
-            ASKING_PROFESSION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_profession)],
-            ASKING_HOBBIES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_hobbies)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel_registration)],
-    )
-    
-    # Add handlers
-    app.add_handler(registration_handler)
-    app.add_handler(CommandHandler("reset", reset_command))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("test_db", test_db_command))
-    app.add_handler(CommandHandler("horoscope", horoscope_command))
-    
-    # Force polling mode for Render Hobby Plan compatibility
-    logger.info("Starting bot in polling mode (Hobby Plan compatible)...")
-    logger.info("Note: Webhooks may not work reliably on Render Hobby Plan")
-    
-    # Clear any existing webhook to prevent conflicts
     try:
-        await app.bot.delete_webhook()
-        logger.info("Cleared existing webhook")
-    except Exception as e:
-        logger.warning(f"Could not clear webhook: {e}")
-    
-    # Wait a bit to ensure webhook is cleared
-    logger.info("Waiting 5 seconds to ensure webhook is cleared...")
-    await asyncio.sleep(5)
-    
-    # Use polling mode
-    logger.info("Starting polling mode...")
-    await app.run_polling()
+        # Initialize database
+        initialize_database()
+        
+        # Create application
+        app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+        
+        # Create conversation handler for registration
+        registration_handler = ConversationHandler(
+            entry_points=[CommandHandler("start", start_command)],
+            states={
+                ASKING_LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_language)],
+                ASKING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
+                ASKING_SEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_sex)],
+                ASKING_BIRTHDAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_birthday)],
+                ASKING_PROFESSION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_profession)],
+                ASKING_HOBBIES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_hobbies)],
+            },
+            fallbacks=[CommandHandler("cancel", cancel_registration)],
+        )
+        
+        # Add handlers
+        app.add_handler(registration_handler)
+        app.add_handler(CommandHandler("reset", reset_command))
+        app.add_handler(CommandHandler("help", help_command))
+        app.add_handler(CommandHandler("test_db", test_db_command))
+        app.add_handler(CommandHandler("horoscope", horoscope_command))
+        
+        # Force polling mode for Render Hobby Plan compatibility
+        logger.info("Starting bot in polling mode (Hobby Plan compatible)...")
+        logger.info("Note: Webhooks may not work reliably on Render Hobby Plan")
+        
+        # Clear any existing webhook to prevent conflicts
+        try:
+            await app.bot.delete_webhook()
+            logger.info("Cleared existing webhook")
+        except Exception as e:
+            logger.warning(f"Could not clear webhook: {e}")
+        
+        # Wait a bit to ensure webhook is cleared
+        logger.info("Waiting 5 seconds to ensure webhook is cleared...")
+        await asyncio.sleep(5)
+        
+        # Use polling mode
+        logger.info("Starting polling mode...")
+        await app.run_polling()
+        
+    finally:
+        # Clean up lock file
+        if lock_file.exists():
+            lock_file.unlink()
+            logger.info("Removed instance lock file")
 
 if __name__ == "__main__":
     asyncio.run(main())
