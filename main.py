@@ -40,7 +40,7 @@ _db_connection = None
 
 # Conversation states
 (ASKING_NAME, ASKING_BIRTHDAY, ASKING_LANGUAGE, ASKING_PROFESSION, 
- ASKING_HOBBIES, ASKING_SEX, ASKING_INTERESTS) = range(7)
+ ASKING_HOBBIES, ASKING_SEX) = range(6)
 
 # Questions sequence with validation
 QUESTIONS = [
@@ -53,8 +53,7 @@ QUESTIONS = [
     (ASKING_HOBBIES, "hobbies", "Kokie tavo pomėgiai?", lambda x: len(x.strip()) >= 2),
     (ASKING_SEX, "sex", "Kokia tavo lytis? (moteris/vyras)", 
      lambda x: x.strip().lower() in ['moteris', 'vyras']),
-    (ASKING_INTERESTS, "interests", "Kuo labiausiai domiesi? (pvz.: šeima, karjera, kelionės)", 
-     lambda x: len(x.strip()) >= 2)
+
 ]
 
 # Rate limiting cache
@@ -98,7 +97,6 @@ def initialize_database():
             profession TEXT NOT NULL,
             hobbies TEXT NOT NULL,
             sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras')),
-            interests TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_horoscope_date DATE,
             is_active BOOLEAN DEFAULT 1
@@ -205,7 +203,7 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
             ASKING_PROFESSION: "Profesija turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
             ASKING_HOBBIES: "Pomėgiai turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
             ASKING_SEX: "Pasirink: moteris arba vyras:",
-            ASKING_INTERESTS: "Interesai turi būti bent 2 simbolių ilgio. Bandyk dar kartą:"
+
         }
         await update.message.reply_text(error_messages[question_index])
         return question_index
@@ -237,8 +235,8 @@ async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TY
     cursor = conn.cursor()
     cursor.execute("""
     INSERT OR REPLACE INTO users 
-    (chat_id, name, birthday, language, profession, hobbies, sex, interests, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+    (chat_id, name, birthday, language, profession, hobbies, sex, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     """, (
         chat_id,
         context.user_data['name'],
@@ -246,8 +244,7 @@ async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data['language'],
         context.user_data['profession'],
         context.user_data['hobbies'],
-        context.user_data['sex'],
-        context.user_data['interests']
+        context.user_data['sex']
     ))
     conn.commit()
     
@@ -282,8 +279,7 @@ async def ask_hobbies(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ask_sex(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await handle_question(update, context, ASKING_SEX)
 
-async def ask_interests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    return await handle_question(update, context, ASKING_INTERESTS)
+
 
 async def cancel_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel the registration process."""
@@ -316,7 +312,7 @@ async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
     
-    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date, is_active = user
+    chat_id, name, birthday, language, profession, hobbies, sex, created_at, last_horoscope_date, is_active = user
     
     # Check if user already got horoscope today
     today = datetime.now().date()
@@ -331,7 +327,7 @@ async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text("Generuoju tavo asmeninį horoskopą... ✨")
     
     try:
-        horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex, interests)
+        horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex)
         
         # Update last horoscope date
         conn = get_db_connection()
@@ -351,7 +347,7 @@ async def get_horoscope_command(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
 async def generate_horoscope(name: str, birthday: str, language: str, profession: str, 
-                           hobbies: str, sex: str, interests: str) -> str:
+                           hobbies: str, sex: str) -> str:
     """Generate personalized horoscope using OpenAI with caching."""
     # Create optimized prompt based on language
     prompts = {
@@ -360,7 +356,6 @@ async def generate_horoscope(name: str, birthday: str, language: str, profession
 Apie {name}:
 - Dirba: {profession}
 - Mėgsta: {hobbies}
-- Domisi: {interests}
 
 Rašyk natūralų, šiltą horoskopą, kuris:
 - Skamba kaip tikras astrologo patarimas, ne kaip AI generuotas tekstas
@@ -378,7 +373,6 @@ Pradėk nuo šiandienos energijos, tada pereik prie asmeninio patarimo.""",
 About {name}:
 - Works as: {profession}
 - Enjoys: {hobbies}
-- Interested in: {interests}
 
 Write a natural, warm horoscope that:
 - Sounds like genuine astrological advice, not AI-generated text
@@ -396,7 +390,6 @@ Start with today's energy, then move to personal advice.""",
 О {name}:
 - Работает: {profession}
 - Увлекается: {hobbies}
-- Интересуется: {interests}
 
 Напиши естественный, тёплый гороскоп, который:
 - Звучит как настоящий астрологический совет, а не как ИИ-генерированный текст
@@ -452,18 +445,17 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date, is_active = user
+    chat_id, name, birthday, language, profession, hobbies, sex, created_at, last_horoscope_date, is_active = user
     
     profile_text = f"""
 👤 **Tavo profilis:**
 
-🌟 **Vardas:** {name}
-📅 **Gimimo data:** {birthday}
 🌍 **Kalba:** {language}
+🌟 **Vardas:** {name}
+👤 **Lytis:** {sex}
+📅 **Gimimo data:** {birthday}
 💼 **Profesija:** {profession}
 🎨 **Pomėgiai:** {hobbies}
-👤 **Lytis:** {sex}
-❤️ **Interesai:** {interests}
 📅 **Registracijos data:** {created_at}
 """
     
@@ -501,7 +493,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✨ Asmeniški horoskopai pagal tavo duomenis
 🌍 Palaiko LT, EN, RU kalbas
 📅 Automatinis siuntimas kiekvieną rytą
-🎯 Motyvuojantys ir pozityvūs pranešimai
 """
     await update.message.reply_text(help_text)
 
@@ -521,12 +512,12 @@ async def test_horoscope_command(update: Update, context: ContextTypes.DEFAULT_T
         )
         return
     
-    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date, is_active = user
+    chat_id, name, birthday, language, profession, hobbies, sex, created_at, last_horoscope_date, is_active = user
     
     await update.message.reply_text("🧪 Testuoju horoskopo generavimą...")
     
     try:
-        horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex, interests)
+        horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex)
         await update.message.reply_text(f"✅ **Testinis horoskopas:**\n\n{horoscope}")
     except Exception as e:
         logger.error(f"Test horoscope error for user {chat_id}: {e}")
@@ -578,7 +569,7 @@ async def send_daily_horoscopes():
         # Process batch concurrently
         tasks = []
         for user in batch:
-            chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date, is_active = user
+            chat_id, name, birthday, language, profession, hobbies, sex, created_at, last_horoscope_date, is_active = user
             task = send_horoscope_to_user(bot, user)
             tasks.append(task)
         
@@ -591,11 +582,11 @@ async def send_daily_horoscopes():
 
 async def send_horoscope_to_user(bot, user):
     """Send horoscope to a single user."""
-    chat_id, name, birthday, language, profession, hobbies, sex, interests, created_at, last_horoscope_date, is_active = user
+    chat_id, name, birthday, language, profession, hobbies, sex, created_at, last_horoscope_date, is_active = user
     
     try:
         # Generate horoscope
-        horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex, interests)
+        horoscope = await generate_horoscope(name, birthday, language, profession, hobbies, sex)
         
         # Send horoscope
         await bot.send_message(chat_id=chat_id, text=horoscope)
@@ -660,7 +651,7 @@ async def main():
             ASKING_PROFESSION: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_profession)],
             ASKING_HOBBIES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_hobbies)],
             ASKING_SEX: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_sex)],
-            ASKING_INTERESTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_interests)],
+
         },
         fallbacks=[CommandHandler("cancel", cancel_registration)],
     )
