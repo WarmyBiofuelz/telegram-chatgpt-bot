@@ -7,6 +7,8 @@ This bot focuses solely on collecting user data and storing it in the database.
 import logging
 import asyncio
 import sqlite3
+import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -559,6 +561,34 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return ConversationHandler.END
 
+async def test_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Test database connection and basic functionality."""
+    chat_id = update.effective_chat.id
+    logger.info(f"Database test requested by {chat_id}")
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Test basic database operations
+        cursor.execute("SELECT COUNT(*) FROM users")
+        user_count = cursor.fetchone()[0]
+        
+        cursor.execute("PRAGMA table_info(users)")
+        columns = cursor.fetchall()
+        
+        await update.message.reply_text(
+            f"✅ Database test successful!\n"
+            f"📊 Total users: {user_count}\n"
+            f"📋 Table columns: {len(columns)}\n"
+            f"🔗 Connection: Active"
+        )
+        logger.info(f"Database test completed successfully for {chat_id}")
+        
+    except Exception as e:
+        logger.error(f"Database test failed for {chat_id}: {e}")
+        await update.message.reply_text(f"❌ Database test failed: {e}")
+
 async def main():
     """Main function to run the registration bot."""
     logger.info("Starting Registration Bot...")
@@ -587,11 +617,25 @@ async def main():
     app.add_handler(registration_handler)
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("test_db", test_db_command))
     
-    # Start the bot
-    logger.info("Registration Bot started successfully!")
-    await app.run_polling()
+    # Check if we should use webhook (for Render)
+    use_webhook = os.getenv('USE_WEBHOOK', 'false').lower() == 'true'
+    webhook_url = os.getenv('WEBHOOK_URL')
+    
+    if use_webhook and webhook_url:
+        # Use webhook mode (better for Render)
+        logger.info("Starting bot in webhook mode...")
+        await app.run_webhook(
+            listen="0.0.0.0",
+            port=int(os.getenv('PORT', 8000)),
+            webhook_url=webhook_url,
+            secret_token=os.getenv('WEBHOOK_SECRET', '')
+        )
+    else:
+        # Use polling mode (for local development)
+        logger.info("Starting bot in polling mode...")
+        await app.run_polling()
 
 if __name__ == "__main__":
-    import time
     asyncio.run(main())
