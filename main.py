@@ -248,13 +248,29 @@ def get_zodiac_sign_lv(birthday: str) -> str:
 def get_db_connection():
     """Get database connection with optimizations."""
     global _db_connection
-    if _db_connection is None:
-        _db_connection = sqlite3.connect(DB_PATH, check_same_thread=False)
-        _db_connection.execute("PRAGMA journal_mode=WAL")
-        _db_connection.execute("PRAGMA synchronous=NORMAL")
-        _db_connection.execute("PRAGMA cache_size=10000")
-        _db_connection.execute("PRAGMA temp_store=MEMORY")
-    return _db_connection
+    try:
+        if _db_connection is None:
+            _db_connection = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30.0)
+            _db_connection.execute("PRAGMA journal_mode=WAL")
+            _db_connection.execute("PRAGMA synchronous=NORMAL")
+            _db_connection.execute("PRAGMA cache_size=10000")
+            _db_connection.execute("PRAGMA temp_store=MEMORY")
+            logger.info("Database connection established successfully")
+        return _db_connection
+    except Exception as e:
+        logger.error(f"Database connection error: {e}")
+        # Try to create a new connection
+        try:
+            _db_connection = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30.0)
+            _db_connection.execute("PRAGMA journal_mode=WAL")
+            _db_connection.execute("PRAGMA synchronous=NORMAL")
+            _db_connection.execute("PRAGMA cache_size=10000")
+            _db_connection.execute("PRAGMA temp_store=MEMORY")
+            logger.info("Database connection re-established successfully")
+            return _db_connection
+        except Exception as e2:
+            logger.error(f"Failed to re-establish database connection: {e2}")
+            raise
 
 def initialize_database():
     """Initialize SQLite database for user profiles with optimizations."""
@@ -374,24 +390,33 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
     chat_id = update.effective_chat.id
     user_input = update.message.text.strip()
     
+    logger.info(f"Handling question {question_index} for {chat_id}: {user_input[:50]}...")
+    
     if is_rate_limited(chat_id):
+        logger.warning(f"User {chat_id} is rate limited")
         await update.message.reply_text(
             f"⏳ Palaukite {RATE_LIMIT_SECONDS} sekundės prieš siųsdami kitą žinutę."
         )
         return question_index
     
-    _, field_name, question_text, validator = QUESTIONS[question_index]
-    
-    if not validator(user_input):
-        error_messages = {
-            ASKING_NAME: "Vardas turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
-            ASKING_BIRTHDAY: "Neteisingas datos formatas! Naudok formatą YYYY-MM-DD (pvz.: 1990-05-15):",
-            ASKING_LANGUAGE: "Pasirink vieną iš: LT, EN, RU arba LV:",
-            ASKING_PROFESSION: "Profesija turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
-            ASKING_HOBBIES: "Pomėgiai turi būti 2-500 simbolių ilgio. Bandyk dar kartą:",
-            ASKING_SEX: "Pasirink: moteris arba vyras:",
-        }
-        await update.message.reply_text(error_messages[question_index])
+    try:
+        _, field_name, question_text, validator = QUESTIONS[question_index]
+        
+        if not validator(user_input):
+            logger.warning(f"Validation failed for {chat_id} on {field_name}: {user_input}")
+            error_messages = {
+                ASKING_NAME: "Vardas turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
+                ASKING_BIRTHDAY: "Neteisingas datos formatas! Naudok formatą YYYY-MM-DD (pvz.: 1990-05-15):",
+                ASKING_LANGUAGE: "Pasirink vieną iš: LT, EN, RU arba LV:",
+                ASKING_PROFESSION: "Profesija turi būti bent 2 simbolių ilgio. Bandyk dar kartą:",
+                ASKING_HOBBIES: "Pomėgiai turi būti 2-500 simbolių ilgio. Bandyk dar kartą:",
+                ASKING_SEX: "Pasirink: moteris arba vyras:",
+            }
+            await update.message.reply_text(error_messages[question_index])
+            return question_index
+    except Exception as e:
+        logger.error(f"Error in handle_question for {chat_id}: {e}")
+        await update.message.reply_text("Atsiprašau, įvyko klaida. Bandyk dar kartą.")
         return question_index
     
     # Store the validated input with sanitization
@@ -493,9 +518,19 @@ async def complete_registration(update: Update, context: ContextTypes.DEFAULT_TY
         
     except Exception as e:
         logger.error(f"Error completing registration for {chat_id}: {e}")
-        await update.message.reply_text(
-            "Atsiprašau, įvyko klaida registracijos metu. Naudok /reset ir pradėk iš naujo."
-        )
+        logger.error(f"User data that caused error: {context.user_data}")
+        
+        # Get appropriate error message based on language
+        user_language = context.user_data.get('language', 'LT')
+        error_messages = {
+            "LT": "Atsiprašau, įvyko klaida registracijos metu. Naudok /reset ir pradėk iš naujo.",
+            "EN": "Sorry, an error occurred during registration. Use /reset and start over.",
+            "RU": "Извините, произошла ошибка при регистрации. Используйте /reset и начните заново.",
+            "LV": "Atvainojiet, reģistrācijas laikā radās kļūda. Izmantojiet /reset un sāciet no jauna."
+        }
+        
+        error_message = error_messages.get(user_language, error_messages["LT"])
+        await update.message.reply_text(error_message)
 
 # Question handlers
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -791,25 +826,59 @@ async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Debug command to show current state."""
     chat_id = update.effective_chat.id
     
-    # Check if user exists in database
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE chat_id = ?", (chat_id,))
-    user = cursor.fetchone()
+    try:
+        # Check if user exists in database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE chat_id = ?", (chat_id,))
+        user = cursor.fetchone()
+        
+        debug_info = f"🔍 **Debug Info for {chat_id}:**\n\n"
+        
+        if user:
+            debug_info += f"✅ User exists in database\n"
+            debug_info += f"📊 User data: {user}\n"
+        else:
+            debug_info += f"❌ User not found in database\n"
+        
+        debug_info += f"\n📝 Current user_data: {context.user_data}\n"
+        debug_info += f"⏱️ Rate limited: {is_rate_limited(chat_id)}\n"
+        debug_info += f"🗂️ User states: {user_states.get(chat_id, 'None')}\n"
+        
+        # Test database connection
+        cursor.execute("SELECT COUNT(*) FROM users")
+        count = cursor.fetchone()[0]
+        debug_info += f"\n🗄️ Total users in database: {count}\n"
+        debug_info += f"✅ Database connection: Working\n"
+        
+        await update.message.reply_text(debug_info)
+        
+    except Exception as e:
+        logger.error(f"Debug command error for {chat_id}: {e}")
+        await update.message.reply_text(f"❌ Debug error: {str(e)}")
+
+async def test_db_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Test database functionality."""
+    chat_id = update.effective_chat.id
     
-    debug_info = f"🔍 **Debug Info for {chat_id}:**\n\n"
-    
-    if user:
-        debug_info += f"✅ User exists in database\n"
-        debug_info += f"📊 User data: {user}\n"
-    else:
-        debug_info += f"❌ User not found in database\n"
-    
-    debug_info += f"\n📝 Current user_data: {context.user_data}\n"
-    debug_info += f"⏱️ Rate limited: {is_rate_limited(chat_id)}\n"
-    debug_info += f"🗂️ User states: {user_states.get(chat_id, 'None')}\n"
-    
-    await update.message.reply_text(debug_info)
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Test basic database operations
+        cursor.execute("SELECT COUNT(*) FROM users")
+        count = cursor.fetchone()[0]
+        
+        # Test insert (will be rolled back)
+        cursor.execute("INSERT INTO users (chat_id, name, birthday, language, profession, hobbies, sex, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
+                      (999999, "Test", "1990-01-01", "LT", "Test", "Test", "vyras", 1))
+        conn.rollback()  # Rollback the test insert
+        
+        await update.message.reply_text(f"✅ Database test successful!\nTotal users: {count}\nInsert/rollback: Working")
+        
+    except Exception as e:
+        logger.error(f"Database test error: {e}")
+        await update.message.reply_text(f"❌ Database test failed: {str(e)}")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show help information."""
@@ -1000,6 +1069,7 @@ async def main():
     # Add handlers - IMPORTANT: ConversationHandler must be added first
     app.add_handler(registration_handler)
     app.add_handler(CommandHandler("test", test_command))
+    app.add_handler(CommandHandler("test_db", test_db_command))
     app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(CommandHandler("horoscope", get_horoscope_command))
