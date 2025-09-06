@@ -9,7 +9,8 @@ import asyncio
 import sqlite3
 import os
 import time
-from datetime import datetime
+import schedule
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -871,11 +872,122 @@ async def horoscope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await loading_msg.delete()
         await update.message.reply_text(f"🌟 **{user_data['name']}**, jūsų horoskopas šiandienai:\n\n{horoscope}")
         
+        # Update last horoscope date
+        today = datetime.now().strftime('%Y-%m-%d')
+        cursor.execute("UPDATE users SET last_horoscope_date = ? WHERE chat_id = ?", (today, chat_id))
+        conn.commit()
+        
         logger.info(f"Horoscope sent successfully to {chat_id}")
         
     except Exception as e:
         logger.error(f"Error in horoscope command for {chat_id}: {e}")
         await update.message.reply_text("Atsiprašau, įvyko klaida. Bandykite dar kartą.")
+
+async def send_daily_horoscopes():
+    """Send daily horoscopes to all registered users at 7:30 AM Lithuanian time."""
+    lithuania_tz = timezone(timedelta(hours=3))  # Lithuania is UTC+3
+    logger.info("Starting daily horoscope sending...")
+    
+    try:
+        # Get all active users who haven't received today's horoscope
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        today = datetime.now(lithuania_tz).strftime('%Y-%m-%d')
+        
+        cursor.execute("""
+            SELECT chat_id, name, birthday, language, profession, hobbies, sex 
+            FROM users 
+            WHERE is_active = 1 AND (last_horoscope_date IS NULL OR last_horoscope_date != ?)
+        """, (today,))
+        
+        users = cursor.fetchall()
+        logger.info(f"Found {len(users)} users to send horoscopes to")
+        
+        if not users:
+            logger.info("No users need horoscopes today")
+            return
+        
+        # Get bot instance for sending messages
+        from telegram import Bot
+        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        
+        sent_count = 0
+        error_count = 0
+        
+        for user_row in users:
+            try:
+                chat_id = user_row[0]
+                user_data = {
+                    'name': user_row[1],
+                    'birthday': user_row[2],
+                    'language': user_row[3],
+                    'profession': user_row[4],
+                    'hobbies': user_row[5],
+                    'sex': user_row[6]
+                }
+                
+                # Generate horoscope
+                horoscope = await generate_horoscope(chat_id, user_data)
+                
+                # Send horoscope
+                morning_messages = {
+                    "LT": f"🌅 Labas rytas, {user_data['name']}! Štai jūsų horoskopas šiandienai:",
+                    "EN": f"🌅 Good morning, {user_data['name']}! Here's your horoscope for today:",
+                    "RU": f"🌅 Доброе утро, {user_data['name']}! Вот ваш гороскоп на сегодня:",
+                    "LV": f"🌅 Labrīt, {user_data['name']}! Šeit ir jūsu horoskopu šodienai:"
+                }
+                
+                morning_msg = morning_messages.get(user_data['language'], morning_messages["LT"])
+                full_message = f"{morning_msg}\n\n🌟 {horoscope}"
+                
+                await bot.send_message(chat_id=chat_id, text=full_message)
+                
+                # Update last horoscope date
+                cursor.execute("UPDATE users SET last_horoscope_date = ? WHERE chat_id = ?", (today, chat_id))
+                conn.commit()
+                
+                sent_count += 1
+                logger.info(f"Daily horoscope sent to {user_data['name']} ({chat_id})")
+                
+                # Small delay to avoid rate limits
+                await asyncio.sleep(1)
+                
+            except Exception as e:
+                error_count += 1
+                logger.error(f"Error sending daily horoscope to {chat_id}: {e}")
+        
+        logger.info(f"Daily horoscope sending completed: {sent_count} sent, {error_count} errors")
+        
+    except Exception as e:
+        logger.error(f"Error in daily horoscope sending: {e}")
+
+async def schedule_daily_horoscopes():
+    """Schedule daily horoscope sending at 7:30 AM Lithuanian time."""
+    lithuania_tz = timezone(timedelta(hours=3))  # Lithuania is UTC+3
+    
+    while True:
+        try:
+            now = datetime.now(lithuania_tz)
+            target_time = now.replace(hour=7, minute=30, second=0, microsecond=0)
+            
+            # If target time has passed today, set for tomorrow
+            if now >= target_time:
+                target_time += timedelta(days=1)
+            
+            # Calculate wait time
+            wait_seconds = (target_time - now).total_seconds()
+            logger.info(f"Next daily horoscope scheduled for: {target_time} (in {wait_seconds/3600:.2f} hours)")
+            
+            # Wait until target time
+            await asyncio.sleep(wait_seconds)
+            
+            # Send daily horoscopes
+            await send_daily_horoscopes()
+            
+        except Exception as e:
+            logger.error(f"Error in horoscope scheduler: {e}")
+            # Wait 1 hour before retrying
+            await asyncio.sleep(3600)
 
 async def main():
     """Main function to run the registration bot."""
@@ -934,6 +1046,10 @@ async def main():
         logger.info("Waiting 5 seconds to ensure webhook is cleared...")
         await asyncio.sleep(5)
         
+        # Start daily horoscope scheduler in background
+        logger.info("Starting daily horoscope scheduler...")
+        scheduler_task = asyncio.create_task(schedule_daily_horoscopes())
+        
         # Use polling mode
         logger.info("Starting polling mode...")
         await app.run_polling()
@@ -943,6 +1059,10 @@ async def main():
         if lock_file.exists():
             lock_file.unlink()
             logger.info("Removed instance lock file")
+        
+        # Cancel scheduler task
+        if 'scheduler_task' in locals():
+            scheduler_task.cancel()
 
 if __name__ == "__main__":
     asyncio.run(main())
