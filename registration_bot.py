@@ -883,6 +883,81 @@ async def horoscope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in horoscope command for {chat_id}: {e}")
         await update.message.reply_text("Atsiprašau, įvyko klaida. Bandykite dar kartą.")
 
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /profile command: show the user's saved profile."""
+    chat_id = update.effective_chat.id
+    logger.info(f"Profile command received from {chat_id}")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT chat_id, name, birthday, language, profession, hobbies, sex FROM users WHERE chat_id = ? AND is_active = 1", (chat_id,))
+        row = cursor.fetchone()
+        if not row:
+            not_registered_messages = {
+                "LT": "Jūs dar neesate užsiregistravę! Naudokite /start komandą registracijai.",
+                "EN": "You are not registered yet! Use /start command to register.",
+                "RU": "Вы еще не зарегистрированы! Используйте команду /start для регистрации.",
+                "LV": "Jūs vēl neesat reģistrējies! Izmantojiet /start komandu reģistrācijai."
+            }
+            await update.message.reply_text(not_registered_messages.get("LT", not_registered_messages["LT"]))
+            return
+        user = {
+            'chat_id': row[0],
+            'name': row[1],
+            'birthday': row[2],
+            'language': row[3] or 'LT',
+            'profession': row[4] or '-',
+            'hobbies': row[5] or '-',
+            'sex': row[6] or '-'
+        }
+        zodiac = get_zodiac_sign(user['birthday'], user['language'])
+        profiles = {
+            "LT": (
+                f"👤 Tavo profilis\n\n"
+                f"• Vardas: {user['name']}\n"
+                f"• Lytis: {user['sex']}\n"
+                f"• Gimimo data: {user['birthday']}\n"
+                f"• Zodiakas: {zodiac}\n"
+                f"• Profesija: {user['profession']}\n"
+                f"• Pomėgiai: {user['hobbies']}\n\n"
+                f"Naudok /update, jei nori pakeisti duomenis."
+            ),
+            "EN": (
+                f"👤 Your profile\n\n"
+                f"• Name: {user['name']}\n"
+                f"• Gender: {user['sex']}\n"
+                f"• Birth date: {user['birthday']}\n"
+                f"• Zodiac: {zodiac}\n"
+                f"• Profession: {user['profession']}\n"
+                f"• Hobbies: {user['hobbies']}\n\n"
+                f"Use /update to change your data."
+            ),
+            "RU": (
+                f"👤 Ваш профиль\n\n"
+                f"• Имя: {user['name']}\n"
+                f"• Пол: {user['sex']}\n"
+                f"• Дата рождения: {user['birthday']}\n"
+                f"• Знак зодиака: {zodiac}\n"
+                f"• Профессия: {user['profession']}\n"
+                f"• Хобби: {user['hobbies']}\n\n"
+                f"Используйте /update, чтобы изменить данные."
+            ),
+            "LV": (
+                f"👤 Jūsu profils\n\n"
+                f"• Vārds: {user['name']}\n"
+                f"• Dzimums: {user['sex']}\n"
+                f"• Dzimšanas datums: {user['birthday']}\n"
+                f"• Zodiaks: {zodiac}\n"
+                f"• Profesija: {user['profession']}\n"
+                f"• Hobiji: {user['hobbies']}\n\n"
+                f"Izmantojiet /update, lai mainītu datus."
+            ),
+        }
+        await update.message.reply_text(profiles.get(user['language'], profiles["LT"]))
+    except Exception as e:
+        logger.error(f"Error in profile command for {chat_id}: {e}")
+        await update.message.reply_text("Atsiprašau, įvyko klaida. Bandykite dar kartą.")
+
 async def send_daily_horoscopes():
     """Send daily horoscopes to all registered users at 7:30 AM Lithuanian time."""
     lithuania_tz = timezone(timedelta(hours=3))  # Lithuania is UTC+3
@@ -1030,6 +1105,7 @@ async def main():
         app.add_handler(CommandHandler("help", help_command))
         app.add_handler(CommandHandler("test_db", test_db_command))
         app.add_handler(CommandHandler("horoscope", horoscope_command))
+        app.add_handler(CommandHandler("profile", profile_command))
         
         # Force polling mode for Render Hobby Plan compatibility
         logger.info("Starting bot in polling mode (Hobby Plan compatible)...")
