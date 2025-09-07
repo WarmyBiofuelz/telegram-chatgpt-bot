@@ -287,7 +287,7 @@ def initialize_database():
             
             logger.info("Database schema migration completed")
         
-        # Create users table with optimized schema (if it doesn't exist)
+        # Ensure table exists with optimized schema
         conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             chat_id INTEGER PRIMARY KEY,
@@ -296,12 +296,44 @@ def initialize_database():
             language TEXT NOT NULL CHECK (language IN ('LT', 'EN', 'RU', 'LV')),
             profession TEXT,
             hobbies TEXT,
-            sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras', 'woman', 'man', 'женщина', 'мужчина', 'sieviete', 'vīrietis')),
+            sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras', 'woman', 'man', 'female', 'male', 'женщина', 'мужчина', 'женский', 'мужской', 'sieviete', 'vīrietis', 'virietis', 'sieviešu', 'vīriešu')),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_horoscope_date DATE,
             is_active BOOLEAN DEFAULT 1
         )
         """)
+        
+        # If table exists but CHECK is outdated, rebuild with unified allowed set
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'")
+        row = cursor.fetchone()
+        table_sql = row[0] if row and row[0] else ""
+        required_tokens = [
+            "female", "male", "женский", "мужской", "virietis", "sieviešu", "vīriešu"
+        ]
+        if "CHECK" in table_sql and any(tok not in table_sql for tok in required_tokens):
+            logger.info("Updating users table CHECK constraint to unified set")
+            conn.execute("""
+                CREATE TABLE users_new (
+                    chat_id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    birthday TEXT NOT NULL,
+                    language TEXT NOT NULL CHECK (language IN ('LT', 'EN', 'RU', 'LV')),
+                    profession TEXT,
+                    hobbies TEXT,
+                    sex TEXT NOT NULL CHECK (sex IN ('moteris', 'vyras', 'woman', 'man', 'female', 'male', 'женщина', 'мужчина', 'женский', 'мужской', 'sieviete', 'vīrietis', 'virietis', 'sieviešu', 'vīriešu')),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_horoscope_date DATE,
+                    is_active BOOLEAN DEFAULT 1
+                )
+            """)
+            conn.execute("""
+                INSERT INTO users_new (chat_id, name, birthday, language, profession, hobbies, sex, created_at, last_horoscope_date, is_active)
+                SELECT chat_id, name, birthday, language, profession, hobbies, sex, created_at, last_horoscope_date, is_active
+                FROM users
+            """)
+            conn.execute("DROP TABLE users")
+            conn.execute("ALTER TABLE users_new RENAME TO users")
+            logger.info("Users table CHECK constraint updated successfully")
         
         # Create indexes for better performance
         conn.execute("CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active)")
