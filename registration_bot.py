@@ -733,7 +733,11 @@ async def generate_horoscope(chat_id: int, user_data: dict) -> str:
             'pirmadienis', 'antradienis', 'trečiadienis',
             'ketvirtadienis', 'penktadienis', 'šeštadienis', 'sekmadienis'
         ][now_lt.weekday()]
-
+        weekday_lv = [
+            'pirmdiena', 'otrdiena', 'trešdiena',
+            'ceturtdiena', 'piektdiena', 'sestdiena', 'svētdiena'
+        ][now_lt.weekday()]
+        
         # Create personalized prompt
         prompts = {
             "LT": f"""Tu esi profesionalus astrologas, rašantis dienos horoskopą vienam žmogui.
@@ -803,23 +807,35 @@ Respond only with the horoscope text, no additional comments.""",
 
 Отвечай только текстом гороскопа, без дополнительных комментариев.""",
             
-            "LV": f"""Izveido personīgu horoskopu šodienai cilvēkam:
-Vārds: {user_data['name']}
-Dzimums: {user_data['sex']}
-Dzimšanas datums: {user_data['birthday']}
-Zodiac zīme: {zodiac}
-Profesija: {user_data['profession']}
-Hobiji: {user_data['hobbies']}
+            "LV": f"""Tu esi profesionāls astrologs, rakstot dienas horoskopu vienai personai latviešu valodā, Akvelīnas Līvmane stilā.
 
-Horoskopam jābūt:
-- Personīgam un pielāgotam šim cilvēkam
-- 4-5 teikumiem
-- Pozitīvam un motivējošam
-- Sniegt praktiskus padomus
-- Iekļaut humoru un optimismu
-- Dabiski pieminēt zodiac zīmi
+Konteksts
+Datums: {date_iso} (nedēļas diena: {weekday_lv})
+Persona: vārds {user_data['name']}, dzimums {user_data['sex']}, dzimšanas datums {user_data['birthday']}, zodiaka zīme {zodiac}
+Papildinformācija (var nebūt): profesija {user_data['profession']}, vaļasprieki {user_data['hobbies']}
 
-Atbildi tikai ar horoskopa tekstu, bez papildu komentāriem."""
+Stils
+Īsi un skaidrs: 3–5 teikumos.
+Latviski, dabiski: bez liekām metaforām vai frāzēm.
+Pozitīvs, praktisks: ikdienas tēmas ( attiecības, noskaņojums, plānošana, atpūta).
+Akvelīnas Līvmane stilā: sauss, bez “kosmiskajām enerģijām”, “zvaigzņu vēstījumiem” utt.
+Zodiaka zīmi piemin reizi, dabiski.
+
+Pielāgot saturu pēc nedēļas dienas:
+Brīvdienās: izvairīties no darba/karjeras ieteikumiem; vairāk vērsties uz atpūtu, mājām, saziņu.
+Darba dienās: profesionāla vai uzdevumu atsauce ir pieļaujama, bet tikai vienā teikumā.
+Ja ir pieejama papildinformācija (profesija vai hobijs), izmanto vienu detaļu – tikai tad, ja tā der saturā.
+Iekļauj vienu vienkāršu ikdienas rīcību (piemēram: “uzraksti īsu ziņu kādam sirdij tuvējam”, “izbaudi nesteidzīgu pastaigu”).
+Beigt optimistiski un mierīgi.
+
+Aizliegumi
+Nekārtojiet cilvēka vārdu vai dzimšanas datumu tekstā bieži.
+Neierakstiet vairākas personiskās detaļas vienā horoskopā.
+Neparedziet garantētus rezultātus (“noteikti gūsi panākumus”).
+Nelietojiet frāzes kā: “zvaigznes saka”, “kosmiskās enerģijas”, “pasaules grib”.
+
+Rezultāts
+Viens paragrāfs, 3–5 teikumi, latviešu valodā."""
         }
         
         prompt = prompts.get(user_data['language'], prompts["LT"])
